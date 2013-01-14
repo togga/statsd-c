@@ -2,7 +2,7 @@
  * STATSD-C
  * C port of Etsy's node.js-based statsd server
  *
- * http://github.com/jbuchbinder/statsd-c
+ * originally based on http://github.com/jbuchbinder/statsd-c
  *
  */
 
@@ -120,9 +120,9 @@ void init_stats()
 
     remove_stats_lock();
 
-    update_stat( "graphite", "last_flush", startup_time );
-    update_stat( "messages", "last_msg_seen", startup_time );
-    update_stat( "messages", "bad_lines_seen", "0" );
+    update_stat("graphite", "last_flush", startup_time);
+    update_stat("messages", "last_msg_seen", startup_time);
+    update_stat("messages", "bad_lines_seen", "0");
 }
 
 void cleanup()
@@ -262,7 +262,7 @@ void daemonize_server()
 
 void syntax(char *argv[])
 {
-    fprintf(stderr, "statsd-c version %s\nhttps://github.com/jbuchbinder/statsd-c\n\n", STATSD_VERSION);
+    fprintf(stderr, "statsd-c version %s\n\n", STATSD_VERSION);
     fprintf(stderr, "Usage: %s [-hDdfFc] [-p port] [-m port] [-s file] [-G host] [-g port] [-S spoofhost] [-P prefix] [-l lockfile] [-T percentiles]\n", argv[0]);
     fprintf(stderr, "\t-p port         set statsd udp listener port (default 8125)\n");
     fprintf(stderr, "\t-m port         set statsd management port (default 8126)\n");
@@ -436,13 +436,14 @@ int main(int argc, char *argv[])
 
         /// WTF is this???
         for (;;)
-            { }
+        {
+        }
     }
     else
     {
         syslog(LOG_DEBUG, "Waiting for pthread termination");
-        pthread_join(thread_udp,     NULL);
-        pthread_join(thread_mgmt,    NULL);
+        pthread_join(thread_udp,   NULL);
+        pthread_join(thread_mgmt,  NULL);
         pthread_join(thread_flush, NULL);
         pthread_join(thread_queue, NULL);
         syslog(LOG_DEBUG, "Pthreads terminated");
@@ -897,77 +898,78 @@ void process_stats_packet(char buf_in[])
 
 void p_thread_udp(void *ptr) 
 {
+    struct sockaddr_in si_me, si_other;
+    fd_set read_flags,write_flags;
+    struct timeval waitd;
+    int stat;
+
+    /* begin udp listener */
     syslog(LOG_INFO, "Thread[Udp]: Starting thread %d\n", (int) *((int *) ptr));
-        struct sockaddr_in si_me, si_other;
-        fd_set read_flags,write_flags;
-        struct timeval waitd;
-        int stat;
 
-        /* begin udp listener */
+    if ((stats_udp_socket=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP))==-1)
+        die_with_error("UDP: Could not grab socket.");
 
-        if ((stats_udp_socket=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP))==-1)
-            die_with_error("UDP: Could not grab socket.");
+    /* Reuse socket, please */
+    int on = 1;
+    setsockopt(stats_udp_socket, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
 
-        /* Reuse socket, please */
-        int on = 1;
-        setsockopt(stats_udp_socket, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+    /* Use non-blocking sockets */
+    int flags = fcntl(stats_udp_socket, F_GETFL, 0);
+    fcntl(stats_udp_socket, F_SETFL, flags | O_NONBLOCK);
 
-        /* Use non-blocking sockets */
-        int flags = fcntl(stats_udp_socket, F_GETFL, 0);
-        fcntl(stats_udp_socket, F_SETFL, flags | O_NONBLOCK);
+    memset((char *) &si_me, 0, sizeof(si_me));
+    si_me.sin_family = AF_INET;
+    si_me.sin_port = htons(port);
+    si_me.sin_addr.s_addr = htonl(INADDR_ANY);
+    syslog(LOG_DEBUG, "UDP: Binding to socket.");
+    if (bind(stats_udp_socket, (struct sockaddr *)&si_me, sizeof(si_me))==-1)
+            die_with_error("UDP: Could not bind");
+    syslog(LOG_DEBUG, "UDP: Bound to socket on port %d", port);
 
-        memset((char *) &si_me, 0, sizeof(si_me));
-        si_me.sin_family = AF_INET;
-        si_me.sin_port = htons(port);
-        si_me.sin_addr.s_addr = htonl(INADDR_ANY);
-        syslog(LOG_DEBUG, "UDP: Binding to socket.");
-        if (bind(stats_udp_socket, (struct sockaddr *)&si_me, sizeof(si_me))==-1)
-                die_with_error("UDP: Could not bind");
-        syslog(LOG_DEBUG, "UDP: Bound to socket on port %d", port);
+    while (1) 
+    {
+        waitd.tv_sec = 1;
+        waitd.tv_usec = 0;
+        FD_ZERO(&read_flags);
+        FD_ZERO(&write_flags);
+        FD_SET(stats_udp_socket, &read_flags);
 
-        while (1) 
+        stat = select(stats_udp_socket+1, &read_flags, &write_flags, (fd_set*)0, &waitd);
+        /* If we can't do anything for some reason, wait a bit */
+        if (stat < 0) 
         {
-            waitd.tv_sec = 1;
-            waitd.tv_usec = 0;
-            FD_ZERO(&read_flags);
-            FD_ZERO(&write_flags);
-            FD_SET(stats_udp_socket, &read_flags);
-
-            stat = select(stats_udp_socket+1, &read_flags, &write_flags, (fd_set*)0, &waitd);
-            /* If we can't do anything for some reason, wait a bit */
-            if (stat < 0) 
-            {
-                syslog(LOG_INFO, "Can't do anything, stat == %d", stat);
-                sleep(1);
-                continue;
-            }
-
-            char buf_in[BUFLEN];
-            if (FD_ISSET(stats_udp_socket, &read_flags)) 
-            {
-                FD_CLR(stats_udp_socket, &read_flags);
-                memset(&buf_in, 0, sizeof(buf_in));
-                if (read(stats_udp_socket, buf_in, sizeof(buf_in)) <= 0) 
-                {
-                    close(stats_udp_socket);
-                    break;
-                }
-                /* make sure that the buf_in is NULL terminated */
-                buf_in[BUFLEN - 1] = 0;
-
-                syslog(LOG_DEBUG, "UDP: Received packet from %s:%d\nData: %s\n\n", 
-                        inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port), buf_in);
-
-                char *packet = strdup(buf_in);
-                syslog(LOG_DEBUG, "UDP: Storing packet in queue");
-                queue_store( packet );
-                syslog(LOG_DEBUG, "UDP: Stored packet in queue");
-            }
+            syslog(LOG_INFO, "Can't do anything, stat == %d", stat);
+            sleep(1);
+            continue;
         }
 
-        if (stats_udp_socket) close(stats_udp_socket);
+        char buf_in[BUFLEN];
+        if (FD_ISSET(stats_udp_socket, &read_flags)) 
+        {
+            FD_CLR(stats_udp_socket, &read_flags);
+            memset(&buf_in, 0, sizeof(buf_in));
+            if (read(stats_udp_socket, buf_in, sizeof(buf_in)) <= 0) 
+            {
+                close(stats_udp_socket);
+                break;
+            }
+            /* make sure that the buf_in is NULL terminated */
+            buf_in[BUFLEN - 1] = 0;
 
-        /* end udp listener */
+            syslog(LOG_DEBUG, "UDP: Received packet from %s:%d\nData: %s\n\n", 
+                    inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port), buf_in);
+
+            char *packet = strdup(buf_in);
+            syslog(LOG_DEBUG, "UDP: Storing packet in queue");
+            queue_store( packet );
+            syslog(LOG_DEBUG, "UDP: Stored packet in queue");
+        }
+    }
+
+    if (stats_udp_socket)
+        close(stats_udp_socket);
+
+    /* end udp listener */
     syslog(LOG_INFO, "Thread[Udp]: Ending thread %d\n", (int) *((int *) ptr));
     pthread_exit(0);
 }

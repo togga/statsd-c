@@ -2,17 +2,17 @@
  * STATSD-C
  * C port of Etsy's node.js-based statsd server
  *
- * http://github.com/jbuchbinder/statsd-c
+ * originally based on http://github.com/jbuchbinder/statsd-c
  *
  */
+
+#ifndef TIMERS_H_INCLUDED
+#define TIMERS_H_INCLUDED
 
 #include <semaphore.h>
 
 #include "uthash/uthash.h"
 #include "uthash/utarray.h"
-
-#ifndef __TIMER_H__
-#define __TIMER_H__ 1
 
 typedef struct
 {
@@ -29,5 +29,5 @@ extern UT_icd timers_icd;
 #define wait_for_timers_lock() sem_wait(&timers_lock)
 #define remove_timers_lock() sem_post(&timers_lock)
 
-#endif /* __TIMER_H__ */
+#endif
 

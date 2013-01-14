@@ -1,17 +1,17 @@
 /*
- *  STATSD-C
- *  C port of Etsy's node.js-based statsd server
+ * STATSD-C
+ * C port of Etsy's node.js-based statsd server
  *
- *  http://github.com/jbuchbinder/statsd-c
+ * originally based on http://github.com/jbuchbinder/statsd-c
  *
  */
+
+#ifndef COUNTERS_H_INCLUDED
+#define COUNTERS_H_INCLUDED
 
 #include <semaphore.h>
 
 #include "uthash/uthash.h"
-
-#ifndef __COUNTERS_H__
-#define __COUNTERS_H__ 1
 
 typedef struct 
 {
@@ -26,5 +26,4 @@ extern sem_t counters_lock;
 #define wait_for_counters_lock() sem_wait(&counters_lock)
 #define remove_counters_lock() sem_post(&counters_lock)
 
-#endif /* __COUNTERS_H__ */
-
+#endif

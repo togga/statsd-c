@@ -2,17 +2,17 @@
  * STATSD-C
  * C port of Etsy's node.js-based statsd server
  *
- * http://github.com/jbuchbinder/statsd-c
+ * originally based on http://github.com/jbuchbinder/statsd-c
  *
  */
+
+#ifndef STATS_H_INCLUDED
+#define STATS_H_INCLUDED
 
 #include <stdbool.h>
 #include <semaphore.h>
 
 #include "uthash/uthash.h"
-
-#ifndef __STATS_H__
-#define __STATS_H__ 1
 
 typedef struct 
 {
@@ -34,5 +34,4 @@ extern sem_t stats_lock;
 #define wait_for_stats_lock() sem_wait(&stats_lock)
 #define remove_stats_lock() sem_post(&stats_lock)
 
-#endif /* __STATS_H__ */
-
+#endif

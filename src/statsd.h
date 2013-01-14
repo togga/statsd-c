@@ -1,13 +1,13 @@
 /*
- *                  STATSD-C
- *                  C port of Etsy's node.js-based statsd server
+ * STATSD-C
+ * C port of Etsy's node.js-based statsd server
  *
- *                  http://github.com/jbuchbinder/statsd-c
+ * originally based onhttp://github.com/jbuchbinder/statsd-c
  *
  */
 
-#ifndef STATSD_H
-#define STATSD_H 1
+#ifndef STATSD_H_INCLUDED
+#define STATSD_H_INCLUDED
 
 #define BUFLEN 1024
 
@@ -124,5 +124,4 @@
     } \
     }
 
-#endif /* STATSD_H */
-
+#endif

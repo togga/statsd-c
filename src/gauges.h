@@ -2,16 +2,16 @@
  * STATSD-C
  * C port of Etsy's node.js-based statsd server
  *
- * http://github.com/jbuchbinder/statsd-c
+ * originally based on http://github.com/jbuchbinder/statsd-c
  *
  */
+
+#ifndef GAUGES_H_INCLUDED
+#define GAUGES_H_INCLUDED
 
 #include <semaphore.h>
 
 #include "uthash/uthash.h"
-
-#ifndef __GAUGES_H__
-#define __GAUGES_H__ 1
 
 typedef struct 
 {
@@ -26,5 +26,4 @@ extern sem_t gauges_lock;
 #define wait_for_gauges_lock() sem_wait(&gauges_lock)
 #define remove_gauges_lock() sem_post(&gauges_lock)
 
-#endif /* __GAUGES_H__ */
-
+#endif
