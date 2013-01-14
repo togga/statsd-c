@@ -1,8 +1,8 @@
 /*
- *          STATSD-C
- *          C port of Etsy's node.js-based statsd server
+ * STATSD-C
+ * C port of Etsy's node.js-based statsd server
  *
- *          http://github.com/jbuchbinder/statsd-c
+ * http://github.com/jbuchbinder/statsd-c
  *
  */
 

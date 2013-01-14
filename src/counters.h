@@ -1,8 +1,8 @@
 /*
- *          STATSD-C
- *          C port of Etsy's node.js-based statsd server
+ *  STATSD-C
+ *  C port of Etsy's node.js-based statsd server
  *
- *          http://github.com/jbuchbinder/statsd-c
+ *  http://github.com/jbuchbinder/statsd-c
  *
  */
 
@@ -13,10 +13,11 @@
 #ifndef __COUNTERS_H__
 #define __COUNTERS_H__ 1
 
-typedef struct {
-  char key[100];
-  long double value;
-  UT_hash_handle hh; /* makes this structure hashable */
+typedef struct 
+{
+    char key[100];
+    long double value;
+    UT_hash_handle hh; /* makes this structure hashable */
 } statsd_counter_t;
 
 extern statsd_counter_t *counters;

@@ -1,8 +1,8 @@
 /*
- *          STATSD-C
- *          C port of Etsy's node.js-based statsd server
+ * STATSD-C
+ * C port of Etsy's node.js-based statsd server
  *
- *          http://github.com/jbuchbinder/statsd-c
+ * http://github.com/jbuchbinder/statsd-c
  *
  */
 
@@ -14,11 +14,12 @@
 #ifndef __TIMER_H__
 #define __TIMER_H__ 1
 
-typedef struct {
-  UT_hash_handle hh; /* makes this structure hashable */
-  char key[100];
-  int count;
-  UT_array *values;
+typedef struct
+{
+    UT_hash_handle hh; /* makes this structure hashable */
+    char key[100];
+    int count;
+    UT_array *values;
 } statsd_timer_t;
 
 extern statsd_timer_t *timers;

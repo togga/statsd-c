@@ -1,8 +1,8 @@
 /*
- *          STATSD-C
- *          C port of Etsy's node.js-based statsd server
+ * STATSD-C
+ * C port of Etsy's node.js-based statsd server
  *
- *          http://github.com/jbuchbinder/statsd-c
+ * http://github.com/jbuchbinder/statsd-c
  *
  */
 
@@ -14,16 +14,18 @@
 #ifndef __STATS_H__
 #define __STATS_H__ 1
 
-typedef struct {
-  char group_name[100];
-  char key_name[100];
+typedef struct 
+{
+    char group_name[100];
+    char key_name[100];
 } statsd_stat_name_t;
 
-typedef struct {
-  statsd_stat_name_t name;
-  long value;
-  bool locked;
-  UT_hash_handle hh; /* makes this structure hashable */
+typedef struct 
+{
+    statsd_stat_name_t name;
+    long value;
+    bool locked;
+    UT_hash_handle hh; /* makes this structure hashable */
 } statsd_stat_t;
 
 extern statsd_stat_t *stats;
