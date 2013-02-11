@@ -1,12 +1,2 @@
-CMakeCache.txt
-CMakeFiles
-cmake_install.cmake
-config.h
-CPackConfig.cmake
-CPackSourceConfig.cmake
-Makefile
-statsd
-statsd_client
-src/*.o
-src/json-c/*.o
-src/embeddedgmetric/*.o
+obj
+bin

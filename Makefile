@@ -1,14 +1,24 @@
 OBJDIR=obj
+BINDIR=bin
 SRC=src
 CC=clang
 CFLAGS=-g
 
 OBJ=$(OBJDIR)/statsd.o $(OBJDIR)/strings.o $(OBJDIR)/queue.o
 
-all: statsd
+.PHONY: all clean
 
-statsd: $(OBJDIR) $(OBJ)
-	$(CC) $(LINKFLAGS) -o statsd $(OBJ)
+all: $(BINDIR) $(BINDIR)/statsd
+
+clean:
+	-rm -rf $(BINDIR)
+	-rm -rf $(OBJDIR)
+
+$(BINDIR):
+	mkdir $(BINDIR)
+
+$(BINDIR)/statsd: $(OBJDIR) $(OBJ)
+	$(CC) $(LINKFLAGS) -o $(BINDIR)/statsd $(OBJ)
 
 $(OBJDIR):
 	mkdir $(OBJDIR)

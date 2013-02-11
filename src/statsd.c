@@ -6,49 +6,27 @@
  *
  */
 
-#include "config.h"
-
-#ifdef HAVE_ARPA_INET_H
 #include <arpa/inet.h>
-#endif
-#ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
-#endif
-#ifdef HAVE_SYS_SOCKET_H
 #include <sys/socket.h>
-#endif
-#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
-#endif
-#ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
-#endif
 #include <sys/types.h>
 #include <errno.h>
-#ifdef HAVE_FCNTL_H
 #include <fcntl.h>
-#endif
-#ifdef HAVE_NETDB_H
 #include <netdb.h>
-#endif
-#ifdef HAVE_PTHREAD_H
 #include <pthread.h>
-#endif
-#ifdef HAVE_SEMAPHORE_H
 #include <semaphore.h>
-#endif
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
-#ifdef HAVE_UNISTD_H
 #include <unistd.h>
-#endif
-#ifdef HAVE_LIMITS_H
 #include <limits.h>
-#endif
+
+#include <event.h>
 
 #include "json-c/json.h"
 #include "uthash/utarray.h"
@@ -61,8 +39,8 @@
 #include "counters.h"
 #include "gauges.h"
 #include "strings.h"
-#include "embeddedgmetric.h"
 
+#define STATSD_VERSION "0.1.0"
 #define LOCK_FILE "/tmp/statsd.lock"
 
 /*
@@ -86,7 +64,7 @@ pthread_t thread_flush;
 pthread_t thread_queue;
 int port = PORT, mgmt_port = MGMT_PORT, ganglia_port = GANGLIA_PORT, flush_interval = FLUSH_INTERVAL;
 int debug = 0, friendly = 0, clear_stats = 0, daemonize = 0, enable_gmetric = 0, enable_graphite = 0, graphite_port = 2003;
-char *serialize_file = NULL, *ganglia_host = NULL, *ganglia_spoof = NULL, *graphite_host = NULL, *ganglia_metric_prefix = NULL, *lock_file = NULL;
+char *graphite_host = NULL, *lock_file = NULL;
 int percentiles[5], num_percentiles = 0;
 
 /*
@@ -99,8 +77,6 @@ void update_counter( char *key, double value, double sample_rate );
 void update_gauge( char *key, double value );
 void update_timer( char *key, double value );
 void process_stats_packet(char buf_in[]);
-void process_json_stats_packet(char buf_in[]);
-void process_json_stats_object(json_object *sobj);
 void dump_stats();
 void p_thread_udp(void *ptr);
 void p_thread_mgmt(void *ptr);
@@ -111,12 +87,6 @@ void init_stats()
 {
     char startup_time[12];
     sprintf(startup_time, "%ld", time(NULL));
-
-    if (serialize_file && !clear_stats)
-    {
-        syslog(LOG_DEBUG, "Deserializing stats from file.");
-        statsd_deserialize(serialize_file);
-    }
 
     remove_stats_lock();
 
@@ -136,19 +106,6 @@ void cleanup()
     {
         syslog(LOG_INFO, "Closing UDP stats socket.");
         close(stats_udp_socket);
-    }
-
-    if (serialize_file)
-    {
-        syslog(LOG_INFO, "Serializing state to file.");
-        if (statsd_serialize(serialize_file))
-        {
-            syslog(LOG_INFO, "Serialized state successfully.");
-        }
-        else
-        {
-            syslog(LOG_ERR, "Failed to serialize state.");
-        }
     }
 
     sem_destroy(&stats_lock);
@@ -241,7 +198,7 @@ void daemonize_server()
         exit(1);
     }
     if (lockf(lockfp, F_TLOCK,0)<0)
-    { 
+    {
         syslog(LOG_ERR, "Could not create lock, bailing out");
         exit(0);
     }
@@ -290,8 +247,8 @@ int main(int argc, char *argv[])
     char *p_raw, *pch;
     pthread_attr_t attr;
 
-    signal (SIGINT, sigint_handler);
-    signal (SIGQUIT, sigquit_handler);
+    signal(SIGINT, sigint_handler);
+    signal(SIGQUIT, sigquit_handler);
 
     sem_init(&stats_lock, 0, 1);
     sem_init(&timers_lock, 0, 1);
@@ -300,9 +257,9 @@ int main(int argc, char *argv[])
 
     queue_init();
 
-    while ((opt = getopt(argc, argv, "dDfhp:m:s:cg:G:F:S:P:l:T:R:")) != -1) 
+    while ((opt = getopt(argc, argv, "dDfhp:m:s:cg:G:F:S:P:l:T:R:")) != -1)
     {
-        switch (opt) 
+        switch (opt)
         {
         case 'd':
             printf("Debug enabled.\n");
@@ -328,10 +285,6 @@ int main(int argc, char *argv[])
             mgmt_port = atoi(optarg);
             printf("Management port set to %d\n", mgmt_port);
             break;
-        case 's':
-            serialize_file = strdup(optarg);
-            printf("Serialize to file %s\n", serialize_file);
-            break;
         case 'c':
             clear_stats = 1;
             printf("Clearing stats on start.\n");
@@ -340,23 +293,6 @@ int main(int argc, char *argv[])
             graphite_host = strdup(optarg);
             enable_graphite = 1;
             printf("Graphite host %s\n", graphite_host);
-            break;
-        case 'G':
-            ganglia_host = strdup(optarg);
-            enable_gmetric = 1;
-            printf("Ganglia host %s\n", ganglia_host);
-            break;
-        case 'g':
-            ganglia_port = atoi(optarg);
-            printf("Ganglia port %d\n", ganglia_port);
-            break;
-        case 'S':
-            ganglia_spoof = strdup(optarg);
-            printf("Ganglia spoof host %s\n", ganglia_spoof);
-            break;
-        case 'P':
-            ganglia_metric_prefix = strdup(optarg);
-            printf("Ganglia metric prefix %s\n", ganglia_metric_prefix);
             break;
         case 'l':
             lock_file = strdup(optarg);
@@ -386,16 +322,11 @@ int main(int argc, char *argv[])
         num_percentiles = 1;
     }
 
-    if (ganglia_spoof == NULL)
-    {
-        ganglia_spoof = strdup("statsd:statsd");
-    }
-
     if (debug)
     {
         setlogmask(LOG_UPTO(LOG_DEBUG));
         openlog("statsd-c",  LOG_CONS | LOG_NDELAY | LOG_PERROR | LOG_PID, LOG_USER);
-    } 
+    }
     else
     {
         setlogmask(LOG_UPTO(LOG_INFO));
@@ -415,8 +346,8 @@ int main(int argc, char *argv[])
         pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     }
 
-    pthread_create (&thread_udp,     daemonize ? &attr : NULL, (void *) &p_thread_udp,   (void *) &pids[0]);
-    pthread_create (&thread_mgmt,    daemonize ? &attr : NULL, (void *) &p_thread_mgmt,  (void *) &pids[1]);
+    pthread_create (&thread_udp,   daemonize ? &attr : NULL, (void *) &p_thread_udp,   (void *) &pids[0]);
+    pthread_create (&thread_mgmt,  daemonize ? &attr : NULL, (void *) &p_thread_mgmt,  (void *) &pids[1]);
     pthread_create (&thread_flush, daemonize ? &attr : NULL, (void *) &p_thread_flush, (void *) &pids[2]);
     pthread_create (&thread_queue, daemonize ? &attr : NULL, (void *) &p_thread_queue, (void *) &pids[3]);
 
@@ -456,7 +387,7 @@ void add_timer( char *key, double value )
 {
     statsd_timer_t *t;
     HASH_FIND_STR( timers, key, t );
-    if (t) 
+    if (t)
     {
         /* Add to old entry */
         wait_for_timers_lock();
@@ -528,13 +459,13 @@ void update_counter( char *key, double value, double sample_rate)
     if (c)
     {
         syslog(LOG_DEBUG, "Updating old counter entry");
-        if (sample_rate == 0) 
+        if (sample_rate == 0)
         {
             wait_for_counters_lock();
             c->value = c->value + value;
             remove_counters_lock();
         }
-        else 
+        else
         {
             wait_for_counters_lock();
             c->value = c->value + ( value * ( 1 / sample_rate ) );
@@ -577,7 +508,7 @@ void update_gauge( char *key, double value )
         g->value = value;
         remove_gauges_lock();
     }
-    else 
+    else
     {
         syslog(LOG_DEBUG, "Adding new timer entry");
         g = malloc(sizeof(statsd_gauge_t));
@@ -623,7 +554,7 @@ void update_timer(char *key, double value)
     }
 }
 
-void dump_stats() 
+void dump_stats()
 {
     if (debug)
     {
@@ -634,9 +565,9 @@ void dump_stats()
             {
                 syslog(LOG_DEBUG, "%s.%s: %ld", s->name.group_name, s->name.key_name, s->value);
             }
-            if (s) 
+            if (s)
                 free(s);
-            if (tmp) 
+            if (tmp)
                 free(tmp);
         }
 
@@ -647,9 +578,9 @@ void dump_stats()
             {
                 syslog(LOG_DEBUG, "%s: %Lf", c->key, c->value);
             }
-            if (c) 
+            if (c)
                 free(c);
-            if (tmp) 
+            if (tmp)
                 free(tmp);
         }
 
@@ -668,89 +599,6 @@ void dump_stats()
     }
 }
 
-void process_json_stats_packet(char buf_in[])
-{
-    if (strlen(buf_in) < 2)
-    {
-        UPDATE_LAST_MSG_SEEN()
-        return;
-    }
-
-    json_object *obj = json_tokener_parse(&buf_in[0]);
-    if (!obj)
-    {
-        syslog(LOG_ERR, "Bad JSON object, skipping");
-        return;
-    }
-
-    if (json_object_get_type(obj) == json_type_object)
-    {
-        syslog(LOG_DEBUG, "Processing single stats object");
-        process_json_stats_object(obj);
-    } 
-    else if (json_object_get_type(obj) == json_type_array)
-    {
-        int i;
-        for (i=0; i<json_object_array_length(obj); i++)
-        {
-            syslog(LOG_DEBUG, "Iterating through objects at pos %d", i);
-            process_json_stats_object(json_object_array_get_idx(obj, i));
-        }
-    }
-    else
-    {
-        syslog(LOG_ERR, "Bad JSON data presented");
-    }
-}
-
-void process_json_stats_object(json_object *sobj)
-{
-    syslog(LOG_INFO, "Processing stat %s", json_object_to_json_string(sobj));
-
-    json_object *timer_obj = json_object_object_get(sobj, "timer");
-    json_object *counter_obj = json_object_object_get(sobj, "counter");
-
-    if (timer_obj && counter_obj)
-    {
-        syslog(LOG_ERR, "Can't specify both timer and counter in same object");
-        return;
-    }
-
-    if (timer_obj)
-    {
-        json_object *value_obj = json_object_object_get(sobj, "value");
-
-        if (!timer_obj || !value_obj)
-        {
-            syslog(LOG_ERR, "Could not process, requires timer && value attributes");
-            return;
-        }
-
-        char *key_name = (char *) json_object_get_string(timer_obj);
-        sanitize_key(key_name);
-        double value = json_object_get_double(value_obj);
-
-        update_timer(key_name, value);
-    } 
-    else if (counter_obj)
-    {
-        json_object *value_obj = json_object_object_get(sobj, "value");
-        json_object *sample_rate_obj = json_object_object_get(sobj, "sample_rate");
-
-        if (!counter_obj || !value_obj)
-        {
-            syslog(LOG_ERR, "Could not process, requires counter && value attributes");
-            return;
-        }
-
-        char *key_name = (char *) json_object_get_string(counter_obj);
-        sanitize_key(key_name);
-        double value = json_object_get_double(value_obj);
-        double sample_rate = sample_rate_obj ? json_object_get_double(sample_rate_obj) : 0;
-
-        update_counter(key_name, value, sample_rate);
-    }
-}
 
 void process_stats_packet(char buf_in[])
 {
@@ -778,7 +626,7 @@ void process_stats_packet(char buf_in[])
             key_name = strdup( token );
             sanitize_key(key_name);
             /* break; */
-        } 
+        }
         else
         {
             syslog(LOG_DEBUG, "\ttoken [#%d] = %s\n", i, token);
@@ -793,7 +641,7 @@ void process_stats_packet(char buf_in[])
                 syslog(LOG_DEBUG, "\t\tvalue = %s\n", token);
                 value = strtod(token, (char **) NULL);
                 syslog(LOG_DEBUG, "\t\tvalue = %s => %f\n", token, value);
-            } 
+            }
             else
             {
                 int j;
@@ -803,7 +651,7 @@ void process_stats_packet(char buf_in[])
                     if (subtoken == NULL)
                         break;
                     syslog(LOG_DEBUG, "\t\tsubtoken = %s\n", subtoken);
-    
+
                     switch (j)
                     {
                     case 1:
@@ -836,7 +684,7 @@ void process_stats_packet(char buf_in[])
                         break;
                     case 3:
                         syslog(LOG_DEBUG, "case 3");
-                        if (subtoken == NULL) 
+                        if (subtoken == NULL)
                             break ;
                         s_sample_rate = strdup(subtoken);
                         break;
@@ -857,7 +705,7 @@ void process_stats_packet(char buf_in[])
                 update_gauge(key_name, value);
                 syslog(LOG_DEBUG, "Found gauge key name '%s'\n", key_name);
                 syslog(LOG_DEBUG, "Found gauge value '%f'\n", value);
-            } 
+            }
             else
             {
                 if (s_sample_rate && *s_sample_rate == 'g')
@@ -869,9 +717,9 @@ void process_stats_packet(char buf_in[])
                 syslog(LOG_DEBUG, "Found key name '%s'\n", key_name);
                 syslog(LOG_DEBUG, "Found value '%f'\n", value);
             }
-            if (s_sample_rate) 
+            if (s_sample_rate)
                 free(s_sample_rate);
-            if (s_number) 
+            if (s_number)
                 free(s_number);
         }
     }
@@ -886,9 +734,9 @@ void process_stats_packet(char buf_in[])
     }
 
     syslog(LOG_DEBUG, "freeing key and value");
-    if (key_name) 
+    if (key_name)
         free(key_name);
-            
+
     UPDATE_LAST_MSG_SEEN()
 }
 
@@ -896,7 +744,7 @@ void process_stats_packet(char buf_in[])
  *  THREADS
  */
 
-void p_thread_udp(void *ptr) 
+void p_thread_udp(void *ptr)
 {
     struct sockaddr_in si_me, si_other;
     fd_set read_flags,write_flags;
@@ -926,7 +774,7 @@ void p_thread_udp(void *ptr)
             die_with_error("UDP: Could not bind");
     syslog(LOG_DEBUG, "UDP: Bound to socket on port %d", port);
 
-    while (1) 
+    while (1)
     {
         waitd.tv_sec = 1;
         waitd.tv_usec = 0;
@@ -936,7 +784,7 @@ void p_thread_udp(void *ptr)
 
         stat = select(stats_udp_socket+1, &read_flags, &write_flags, (fd_set*)0, &waitd);
         /* If we can't do anything for some reason, wait a bit */
-        if (stat < 0) 
+        if (stat < 0)
         {
             syslog(LOG_INFO, "Can't do anything, stat == %d", stat);
             sleep(1);
@@ -944,11 +792,11 @@ void p_thread_udp(void *ptr)
         }
 
         char buf_in[BUFLEN];
-        if (FD_ISSET(stats_udp_socket, &read_flags)) 
+        if (FD_ISSET(stats_udp_socket, &read_flags))
         {
             FD_CLR(stats_udp_socket, &read_flags);
             memset(&buf_in, 0, sizeof(buf_in));
-            if (read(stats_udp_socket, buf_in, sizeof(buf_in)) <= 0) 
+            if (read(stats_udp_socket, buf_in, sizeof(buf_in)) <= 0)
             {
                 close(stats_udp_socket);
                 break;
@@ -956,7 +804,7 @@ void p_thread_udp(void *ptr)
             /* make sure that the buf_in is NULL terminated */
             buf_in[BUFLEN - 1] = 0;
 
-            syslog(LOG_DEBUG, "UDP: Received packet from %s:%d\nData: %s\n\n", 
+            syslog(LOG_DEBUG, "UDP: Received packet from %s:%d\nData: %s\n\n",
                     inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port), buf_in);
 
             char *packet = strdup(buf_in);
@@ -974,7 +822,7 @@ void p_thread_udp(void *ptr)
     pthread_exit(0);
 }
 
-void p_thread_queue(void *ptr) 
+void p_thread_queue(void *ptr)
 {
     syslog(LOG_INFO, "Thread[Queue]: Starting thread %d\n", (int) *((int *) ptr));
 
@@ -987,16 +835,9 @@ void p_thread_queue(void *ptr)
             memset(&buf_in, 0, sizeof(buf_in));
             strcpy(buf_in, packet);
 
-            if (buf_in[0] == '{' || buf_in[0] == '[')
-            {
-                syslog(LOG_DEBUG, "Queue: Processing as JSON packet");
-                process_json_stats_packet(buf_in);
-            }
-            else
-            {
-                syslog(LOG_DEBUG, "Queue: Processing as standard packet");
-                process_stats_packet(buf_in);
-            }
+            syslog(LOG_DEBUG, "Queue: Processing as standard packet");
+            process_stats_packet(buf_in);
+
             packet = queue_pop_first();
         }
         sleep(100);
@@ -1025,7 +866,7 @@ void p_thread_mgmt(void *ptr)
 
     FD_ZERO(&master);
     FD_ZERO(&read_fds);
- 
+
     if ((stats_mgmt_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1)
     {
         perror("socket error");
@@ -1037,30 +878,30 @@ void p_thread_mgmt(void *ptr)
         perror("setsockopt error");
         exit(1);
     }
- 
+
     /* bind */
     serveraddr.sin_family = AF_INET;
     serveraddr.sin_addr.s_addr = INADDR_ANY;
     serveraddr.sin_port = htons(mgmt_port);
     memset(&(serveraddr.sin_zero), '\0', 8);
- 
+
     if (bind(stats_mgmt_socket, (struct sockaddr *)&serveraddr, sizeof(serveraddr)) == -1)
     {
         exit(1);
     }
- 
+
     if (listen(stats_mgmt_socket, 10) == -1)
     {
         exit(1);
     }
- 
+
     FD_SET(stats_mgmt_socket, &master);
     fdmax = stats_mgmt_socket;
- 
+
     for (;;)
     {
         read_fds = master;
- 
+
         if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1)
         {
             perror("select error");
@@ -1077,7 +918,7 @@ void p_thread_mgmt(void *ptr)
                     if ((newfd = accept(stats_mgmt_socket, (struct sockaddr *)&clientaddr, (socklen_t *) &addrlen)) == -1)
                     {
                         perror("accept error");
-                    } 
+                    }
                     else
                     {
                         FD_SET(newfd, &master);
@@ -1089,7 +930,7 @@ void p_thread_mgmt(void *ptr)
 
                         /* Send prompt on connection */
                         if (friendly)
-                        { 
+                        {
                             STREAM_SEND(newfd, MGMT_PROMPT)
                         }
                     }
@@ -1102,12 +943,12 @@ void p_thread_mgmt(void *ptr)
                         if (nbytes == 0)
                         {
                             syslog(LOG_INFO, "Socket %d hung up\n", i);
-                        } 
+                        }
                         else
                         {
                             perror("recv() error");
                         }
- 
+
                         close(i);
                         FD_CLR(i, &master);
                     }
@@ -1119,10 +960,10 @@ void p_thread_mgmt(void *ptr)
                         {
                             STREAM_SEND(i, MGMT_HELP);
                             if (friendly)
-                            { 
-                                STREAM_SEND(i, MGMT_PROMPT); 
+                            {
+                                STREAM_SEND(i, MGMT_PROMPT);
                             }
-                        } 
+                        }
                         else if (strncasecmp(bufptr, (char *)"counters", 8) == 0)
                         {
                             /* send counters */
@@ -1135,17 +976,17 @@ void p_thread_mgmt(void *ptr)
                                 STREAM_SEND_LONG_DOUBLE(i, s_counter->value);
                                 STREAM_SEND(i, "\n");
                             }
-                            if (s_counter) 
+                            if (s_counter)
                                 free(s_counter);
-                            if (tmp) 
+                            if (tmp)
                                 free(tmp);
 
                             STREAM_SEND(i, MGMT_END);
                             if (friendly)
-                            { 
+                            {
                                 STREAM_SEND(i, MGMT_PROMPT);
                             }
-                        } 
+                        }
                         else if (strncasecmp(bufptr, (char *)"timers", 6) == 0)
                         {
                             /* send timers */
@@ -1164,8 +1005,8 @@ void p_thread_mgmt(void *ptr)
                                     while ( (j=(double *)utarray_next(s_timer->values, j)) )
                                     {
                                         if (first == 1)
-                                        { 
-                                            first = 0; 
+                                        {
+                                            first = 0;
                                             STREAM_SEND(i, ",");
                                         }
                                         STREAM_SEND_DOUBLE(i, *j);
@@ -1174,9 +1015,9 @@ void p_thread_mgmt(void *ptr)
                                 }
                                 STREAM_SEND(i, "\n");
                             }
-                            if (s_timer) 
+                            if (s_timer)
                                 free(s_timer);
-                            if (tmp) 
+                            if (tmp)
                                 free(tmp);
 
                             STREAM_SEND(i, MGMT_END);
@@ -1184,7 +1025,7 @@ void p_thread_mgmt(void *ptr)
                             {
                                 STREAM_SEND(i, MGMT_PROMPT);
                             }
-                        } 
+                        }
                         else if (strncasecmp(bufptr, (char *)"stats", 5) == 0)
                         {
                             /* send stats */
@@ -1202,18 +1043,18 @@ void p_thread_mgmt(void *ptr)
                                 STREAM_SEND_LONG(i, s_stat->value);
                                 STREAM_SEND(i, "\n");
                             }
-                            if (s_stat) 
+                            if (s_stat)
                                 free(s_stat);
                             if (tmp)
                                 free(tmp);
 
                             STREAM_SEND(i, MGMT_END);
                             if (friendly)
-                            { 
+                            {
                                 STREAM_SEND(i, MGMT_PROMPT);
                             }
-                        } 
-                        else if (strncasecmp(bufptr, (char *)"quit", 4) == 0) 
+                        }
+                        else if (strncasecmp(bufptr, (char *)"quit", 4) == 0)
                         {
                             /* disconnect */
                             close(i);
@@ -1223,7 +1064,7 @@ void p_thread_mgmt(void *ptr)
                         {
                             STREAM_SEND(i, MGMT_BADCOMMAND);
                             if (friendly)
-                            { 
+                            {
                                 STREAM_SEND(i, MGMT_PROMPT);
                             }
                         }
@@ -1247,19 +1088,7 @@ void p_thread_flush(void *ptr)
     {
         THREAD_SLEEP(flush_interval);
 
-        gmetric_t gm;
-
         dump_stats();
-
-        if (enable_gmetric)
-        {
-            gmetric_create(&gm);
-            if (!gmetric_open(&gm, ganglia_host, ganglia_port))
-            {
-                syslog(LOG_ERR, "Unable to connect to ganglia host %s:%d", ganglia_host, ganglia_port);
-                enable_gmetric = 0;
-            }
-        }
 
         long ts = time(NULL);
         char *ts_string = ltoa(ts);
@@ -1279,29 +1108,6 @@ void p_thread_flush(void *ptr)
                 if (enable_graphite)
                 {
                     utstring_printf(statString, "stats.%s %Lf %ld\nstats_counts_%s %Lf %ld\n", s_counter->key, value, ts, s_counter->key, s_counter->value, ts);
-                }
-
-                if (enable_gmetric)
-                {
-                    {
-                        char *k = NULL;
-                        if (ganglia_metric_prefix != NULL)
-                        {
-                            k = malloc(strlen(s_counter->key) + strlen(ganglia_metric_prefix) + 1);
-                            sprintf(k, "%s%s", ganglia_metric_prefix, s_counter->key);
-                        }
-                        else
-                        {
-                            k = strdup(s_counter->key);
-                        }
-                        SEND_GMETRIC_DOUBLE(k, k, value, "count");
-                        if (k) 
-                            free(k);
-                    }
-
-                    {
-                        SEND_GMETRIC_DOUBLE(s_counter->key, s_counter->key, s_counter->value, "count");
-                    }
                 }
 
                 /* Clear counter after we're done with it */
@@ -1394,6 +1200,7 @@ void p_thread_flush(void *ptr)
                         );
                     }
 
+#if 0
                     if (enable_gmetric)
                     {
                         {
@@ -1425,6 +1232,7 @@ void p_thread_flush(void *ptr)
                             SEND_GMETRIC_INT(s_timer->key, k, s_timer->count, "count");
                         }
                     }
+#endif
                 }
                 numStats++;
             }
@@ -1445,6 +1253,7 @@ void p_thread_flush(void *ptr)
                 {
                         utstring_printf(statString, "stats.%s %Lf %ld\nstats_gauges_%s %Lf %ld\n", s_gauge->key, value, ts, s_gauge->key, s_gauge->value, ts);
                 }
+#if 0
                 if (enable_gmetric)
                 {
                     {
@@ -1468,6 +1277,7 @@ void p_thread_flush(void *ptr)
                         //if (k) free(k);
                     }
                 }
+#endif
                 numStats++;
             }
             if (s_gauge) free(s_gauge);
@@ -1483,10 +1293,12 @@ void p_thread_flush(void *ptr)
             {
                 utstring_printf(statString, "statsd.numStats %d %ld\n", numStats, ts);
             }
+#if 0
             if (enable_gmetric)
             {
                 SEND_GMETRIC_INT("statsd", "statsd_numstats_collected", numStats, "count");
             }
+#endif
         }
 
         /* TODO: Flush to graphite */
@@ -1517,9 +1329,9 @@ void p_thread_flush(void *ptr)
 
             /* h_addr_list[0] is raw memory */
             uint32_t* ip = (uint32_t*) result->h_addr_list[0];
-     
+
             if (!nova)
-            { 
+            {
                 sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
                 if (sock == -1)
                 {
@@ -1543,12 +1355,13 @@ void p_thread_flush(void *ptr)
             }
         }
 
+#if 0
         if (enable_gmetric)
         {
             gmetric_close(&gm);
         }
-
-        if (ts_string) 
+#endif
+        if (ts_string)
         {
             free(ts_string);
         }
