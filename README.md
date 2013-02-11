@@ -1,32 +1,17 @@
 STATSD-C
 ========
 
-[![Build
-Status](https://secure.travis-ci.org/jbuchbinder/statsd-c.png)](http://travis-ci.org/jbuchbinder/statsd-c)
+This is the code from jbuchbinder/statsd-c with the JSON stuff and Gaglia/Gmetric stuff
+removed. I want a minimal statsd server written in C for Graphite. I don't care for Ganglia
+or JSON, so I have no use for that code.
 
-SUMMARY
--------
+I also plan to build this using libevent asynchronous IO instead of pthreads.
 
-Reimplementation of [Etsy's infamous "statsd"](http://github.com/etsy/statsd) in C.
+BUILD
+-----
 
-Your mileage may vary. It works for me, and it *should* be wire compatible with the original node.js-based statsd.
+Type "make". press enter.
 
-There are some libraries used/included:
-
-* [embeddedmgetric](http://code.google.com/p/embeddedgmetric/) : Ganglia gmetric support (BSD)
-* [json-c](http://oss.metaparadigm.com/json-c/) : JSON (de)serialization (BSD)
-* [uthash](http://uthash.sourceforge.net/ ): Hash management "library" (BSD)
-
-Build with `cmake . && make`. A simple client to submit data called
-"statsd_client" is built as well.
-
-FEATURES
---------
-
-* Wire compatible with original statsd, or use the handy JSON format instead...
-* Small, fast, efficient, with no VM overhead.
-* Able to de/serialize state to/from disk.
-* Direct stat flush to ganglia's gmond.
 
 USAGE
 -----
@@ -47,34 +32,3 @@ USAGE
         -F seconds        set flush interval in seconds (default 10)
         -c                clear stats on startup
         -T                percentile thresholds, csv (defaults to 90)
-
-JSON FORMAT
------------
-
-Input can be specified as either a JSON object or an array of JSON objects.
-An example of some different inputs would be:
-
-* Increase counter 'test_counter' by 300:
-
-```
-    {'counter':'test_counter','value':300}
-```
-
-* Add two counters:
-
-```
-    [{'counter':'count1','value':1.0},{'counter':'count2','value':1.0}]
-```
-
-* Add a counter with a set sample rate:
-
-```
-    {'counter':'sample','value':5,'sample_rate':10}
-```
-
-* Set a timer:
-
-```
-    {'timer':'test_timer',value:12345}
-```
-
