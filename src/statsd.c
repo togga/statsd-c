@@ -18,7 +18,7 @@
 #include <unistd.h>
 #include <limits.h>
 
-#include <event.h>
+#include <event2/event.h>
 
 #include "uthash/utarray.h"
 #include "uthash/utstring.h"
@@ -209,11 +209,10 @@ void daemonize_server()
 
 void syntax(char *argv[])
 {
-    fprintf(stderr, "statsd-c version %s\n\n", STATSD_VERSION);
+    fprintf(stderr, "statsd version %s\n\n", STATSD_VERSION);
     fprintf(stderr, "Usage: %s [-hDdfFc] [-p port] [-m port] [-s file] [-G host] [-g port] [-S spoofhost] [-P prefix] [-l lockfile] [-T percentiles]\n", argv[0]);
     fprintf(stderr, "\t-p port         set statsd udp listener port (default 8125)\n");
     fprintf(stderr, "\t-m port         set statsd management port (default 8126)\n");
-    fprintf(stderr, "\t-s file         serialize state to and from file (default disabled)\n");
     fprintf(stderr, "\t-R host         graphite host (default disabled)\n");
     fprintf(stderr, "\t-l lockfile     lock file (only used when daemonizing)\n");
     fprintf(stderr, "\t-h              this help display\n");
@@ -231,6 +230,7 @@ int main(int argc, char *argv[])
     int pids[4] = { 1, 2, 3, 4 };
     int opt, rc = 0;
     char *p_raw, *pch;
+    struct event_base *event_base;
     pthread_attr_t attr;
 
     signal(SIGINT, sigint_handler);
@@ -242,6 +242,7 @@ int main(int argc, char *argv[])
     sem_init(&gauges_lock, 0, 1);
 
     queue_init();
+    event_base = event_base_new();
 
     while ((opt = getopt(argc, argv, "dDfhp:m:s:cg:G:F:S:P:l:T:R:")) != -1)
     {
@@ -364,6 +365,8 @@ int main(int argc, char *argv[])
         pthread_join(thread_queue, NULL);
         syslog(LOG_DEBUG, "Pthreads terminated");
     }
+
+    event_base_free(event_base);
 
     return 0;
 }
@@ -800,7 +803,9 @@ void p_thread_udp(void *ptr)
     }
 
     if (stats_udp_socket)
+    {
         close(stats_udp_socket);
+    }
 
     /* end udp listener */
     syslog(LOG_INFO, "Thread[Udp]: Ending thread %d\n", (int) *((int *) ptr));
@@ -1229,6 +1234,7 @@ void p_thread_flush(void *ptr)
 #endif
         if (result == NULL || result->h_addr_list[0] == NULL || result->h_length != 4)
         {
+            printf("Cannot get hostname\n");
             failure = 1;
         }
 
@@ -1237,7 +1243,7 @@ void p_thread_flush(void *ptr)
 
         if (!failure)
         {
-            sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+            sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
             if (sock == -1)
             {
                 failure = 1;
@@ -1247,15 +1253,19 @@ void p_thread_flush(void *ptr)
         if (!failure)
         {
             memset(&sa, 0, sizeof(struct sockaddr_in));
+            sa.sin_len = sizeof(struct sockaddr_in);
             sa.sin_family = AF_INET;
-            sa.sin_port = htons(port);
-            memcpy(&(sa.sin_addr), &ip, sizeof(ip));
+            sa.sin_port = htons(graphite_port);
+            memcpy(&(sa.sin_addr), ip, sizeof(*ip));
         }
 
         if (!failure)
         {
-            connect(sock, (struct sockaddr *)&ip, sizeof(ip));
-            send(sock, utstring_body(statString), utstring_len(statString), 0);
+            printf("Sending data to %s:%d. addr = %08x\n", graphite_host, graphite_port, *ip);
+            int r = connect(sock, (struct sockaddr *)&sa, sizeof(sa));
+            printf("Connect result = %d\n", r);
+            int n = send(sock, utstring_body(statString), utstring_len(statString), 0);
+            printf("Send result = %d\n", n);
             close(sock);
         }
 

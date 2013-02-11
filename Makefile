@@ -2,7 +2,7 @@ OBJDIR=obj
 BINDIR=bin
 SRC=src
 CC=clang
-CFLAGS=-g
+CFLAGS=-g -Wall -Werror
 
 OBJ=$(OBJDIR)/statsd.o $(OBJDIR)/strings.o $(OBJDIR)/queue.o
 
@@ -18,7 +18,7 @@ $(BINDIR):
 	mkdir $(BINDIR)
 
 $(BINDIR)/statsd: $(OBJDIR) $(OBJ)
-	$(CC) $(LINKFLAGS) -o $(BINDIR)/statsd $(OBJ)
+	$(CC) $(LINKFLAGS) -o $(BINDIR)/statsd $(OBJ) -levent
 
 $(BINDIR)/statsd_client: $(OBJDIR) $(OBJDIR)/statsd_client.o
 	$(CC) $(LINKFLAGS) -o $(BINDIR)/statsd_client $(OBJDIR)/statsd_client.o
