@@ -1,11 +1,3 @@
-/*
- * STATSD-C
- * C port of Etsy's node.js-based statsd server
- *
- * originally based on http://github.com/jbuchbinder/statsd-c
- *
- */
-
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,7 +16,7 @@ void queue_init()
     syslog(LOG_DEBUG, "queue_init");
     queue_store_pos = 0;
     queue_retrieve_pos = 0;
-    for (p = 0; p < MAX_QUEUE_SIZE; p++ ) 
+    for (p = 0; p < MAX_QUEUE_SIZE; p++ )
     {
         queue[ p ] = NULL;
     }
@@ -45,12 +37,12 @@ int queue_store(char *ptr)
 
 char *queue_pop_first()
 {
-    if (queue[ queue_retrieve_pos ] == NULL) 
+    if (queue[ queue_retrieve_pos ] == NULL)
         return NULL;
     char *tmpptr = queue[ queue_retrieve_pos ];
     queue[ queue_retrieve_pos ] = NULL;
     queue_retrieve_pos ++;
-    if (queue_retrieve_pos == MAX_QUEUE_SIZE) 
+    if (queue_retrieve_pos == MAX_QUEUE_SIZE)
     {
         queue_retrieve_pos = 0;
     }

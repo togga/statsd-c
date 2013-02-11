@@ -1,39 +1,19 @@
-/*
- * STATSD-C
- * C port of Etsy's node.js-based statsd server
- *
- * originally based on http://github.com/jbuchbinder/statsd-c
- *
- */
-
-#include "config.h"
-
-#ifdef HAVE_ARPA_INET_H
 #include <arpa/inet.h>
-#endif
-#ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
-#endif
-#ifdef HAVE_SYS_SOCKET_H
 #include <sys/socket.h>
-#endif
 #include <sys/types.h>
 #include <rpc/rpc.h>
 #include <getopt.h>
-#ifdef HAVE_NETDB_H
 #include <netdb.h>
-#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef HAVE_TIME_H
 #include <time.h>
-#endif
 
 uint32_t *resolve_host(const char *addr);
 void usage(char *argv[]);
 
-double get_time() 
+double get_time()
 {
     struct timeval t;
     struct timezone tzp;
@@ -41,7 +21,7 @@ double get_time()
     return t.tv_sec + t.tv_usec*1e-6;
 }
 
-int main(int argc, char *argv[]) 
+int main(int argc, char *argv[])
 {
     struct sockaddr_in *sa;
 
@@ -128,7 +108,7 @@ int main(int argc, char *argv[])
         ending_time = get_time();
         printf("10k queries in %f seconds\n", ending_time - starting_time);
         return 0;
-    } 
+    }
     else
     {
         if (!sendto(s, (char*) buf, strlen(buf), 0, (struct sockaddr*) sa, sizeof(struct sockaddr_in)))

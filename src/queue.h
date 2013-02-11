@@ -1,13 +1,5 @@
-/*
- * STATSD-C
- * C port of Etsy's node.js-based statsd server
- *
- * originally based on http://github.com/jbuchbinder/statsd-c
- *
- */
-
 #ifndef QUEUE_H_INCLUDED
-#define QUEUE_H_INCLUDED 1
+#define QUEUE_H_INCLUDED
 
 #include "counters.h"
 #include "stats.h"

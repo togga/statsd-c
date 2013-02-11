@@ -1,11 +1,3 @@
-/*
- * STATSD-C
- * C port of Etsy's node.js-based statsd server
- *
- * originally based on http://github.com/jbuchbinder/statsd-c
- *
- */
-
 #ifndef STATS_H_INCLUDED
 #define STATS_H_INCLUDED
 
@@ -14,13 +6,13 @@
 
 #include "uthash/uthash.h"
 
-typedef struct 
+typedef struct
 {
     char group_name[100];
     char key_name[100];
 } statsd_stat_name_t;
 
-typedef struct 
+typedef struct
 {
     statsd_stat_name_t name;
     long value;

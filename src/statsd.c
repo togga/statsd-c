@@ -1,11 +1,3 @@
-/*
- * STATSD-C
- * C port of Etsy's node.js-based statsd server
- *
- * originally based on http://github.com/jbuchbinder/statsd-c
- *
- */
-
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -33,7 +25,6 @@
 #include "uthash/utstring.h"
 #include "queue.h"
 #include "statsd.h"
-#include "serialize.h"
 #include "stats.h"
 #include "timers.h"
 #include "counters.h"

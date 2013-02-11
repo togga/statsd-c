@@ -1,11 +1,3 @@
-/*
- * STATSD-C
- * C port of Etsy's node.js-based statsd server
- *
- * originally based on http://github.com/jbuchbinder/statsd-c
- *
- */
-
 #ifndef GAUGES_H_INCLUDED
 #define GAUGES_H_INCLUDED
 
@@ -13,7 +5,7 @@
 
 #include "uthash/uthash.h"
 
-typedef struct 
+typedef struct
 {
     char key[100];
     long double value;
