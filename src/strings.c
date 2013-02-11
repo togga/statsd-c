@@ -1,11 +1,3 @@
-/*
- * STATSD-C
- * C port of Etsy's node.js-based statsd server
- *
- * originally based on http://github.com/jbuchbinder/statsd-c
- *
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,12 +13,12 @@ void sanitize_key(char *k)
         {
             *(dest + c) = '_';
             c++;
-        } 
+        }
         else if (*p == '\\' || *p == '/')
         {
             *(dest + c) = '-';
             c++;
-        } 
+        }
         else if ( (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '_' || *p == '-' )
         {
             *(dest + c) = *p;
@@ -36,7 +28,7 @@ void sanitize_key(char *k)
     }
     *(dest + c) = '\0';
     memcpy(k, dest, c + 1);
-    if (dest) 
+    if (dest)
         free(dest);
 }
 

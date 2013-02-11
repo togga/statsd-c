@@ -1,11 +1,3 @@
-/*
- * STATSD-C
- * C port of Etsy's node.js-based statsd server
- *
- * originally based on http://github.com/jbuchbinder/statsd-c
- *
- */
-
 #ifndef TIMERS_H_INCLUDED
 #define TIMERS_H_INCLUDED
 
