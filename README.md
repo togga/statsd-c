@@ -5,12 +5,13 @@ This is the code from jbuchbinder/statsd-c with the JSON stuff and Gaglia/Gmetri
 removed. I want a minimal statsd server written in C for Graphite. I don't care for Ganglia
 or JSON, so I have no use for that code.
 
-I also plan to build this using libevent asynchronous IO instead of pthreads.
+I also plan to build this using libevent asynchronous IO instead of pthreads, so the threading
+is going away soon.
 
 BUILD
 -----
 
-Type "make". press enter.
+Type "make". press enter. It compiles on Mac OS X.
 
 
 USAGE
