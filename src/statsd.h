@@ -1,11 +1,3 @@
-/*
- * STATSD-C
- * C port of Etsy's node.js-based statsd server
- *
- * originally based onhttp://github.com/jbuchbinder/statsd-c
- *
- */
-
 #ifndef STATSD_H_INCLUDED
 #define STATSD_H_INCLUDED
 
@@ -14,7 +6,6 @@
 /* Default statsd ports */
 #define PORT 8125
 #define MGMT_PORT 8126
-#define GANGLIA_PORT 8649
 
 /* Define stat flush interval in sec */
 #define FLUSH_INTERVAL 10
@@ -51,77 +42,5 @@
 #define MGMT_BADCOMMAND "ERROR\n"
 #define MGMT_PROMPT "statsd> "
 #define MGMT_HELP "Commands: stats, counters, timers, quit\n\n"
-
-/*
- * GMETRIC SENDING
- */
-
-#define SEND_GMETRIC_DOUBLE(mygroup, myname, myvalue, myunit) { \
-    char mystringvalue[30]; \
-    sprintf(mystringvalue, "%Lf", (long double) myvalue); \
-    gmetric_message_t msg = { \
-        .format = GMETRIC_FORMAT_31, \
-        .type = GMETRIC_VALUE_DOUBLE, \
-        .name = myname, \
-        .group = mygroup, \
-        .hostname = ganglia_spoof, \
-        .value.v_string = mystringvalue, \
-        .units = myunit, \
-        .slope = GMETRIC_SLOPE_BOTH, \
-        .tmax = flush_interval + 10, \
-        .dmax = flush_interval + 10, \
-        .spoof = 1 \
-    }; \
-    int len = gmetric_send(&gm, &msg); \
-    if (len != -1) { \
-        syslog(LOG_INFO, "Sent gmetric DOUBLE message %s length %d", myname, len); \
-    } else { \
-        syslog(LOG_ERR, "Failed to send gmetric %s", myname); \
-    } \
-    }
-#define SEND_GMETRIC_INT(mygroup, myname, myvalue, myunit) { \
-    char mystringvalue[30]; \
-    sprintf(mystringvalue, "%d", myvalue); \
-    gmetric_message_t msg = { \
-        .format = GMETRIC_FORMAT_31, \
-        .type = GMETRIC_VALUE_INT, \
-        .name = myname, \
-        .group = mygroup, \
-        .hostname = ganglia_spoof, \
-        .value.v_string = mystringvalue, \
-        .units = myunit, \
-        .slope = GMETRIC_SLOPE_BOTH, \
-        .tmax = flush_interval + 10, \
-        .dmax = flush_interval + 10, \
-        .spoof = 1 \
-    }; \
-    int len = gmetric_send(&gm, &msg); \
-    if (len != -1) { \
-        syslog(LOG_INFO, "Sent gmetric INT message %s length %d", myname, len); \
-    } else { \
-        syslog(LOG_ERR, "Failed to send gmetric %s", myname); \
-    } \
-    }
-#define SEND_GMETRIC_STRING(myname, myvalue, myunit) { \
-    gmetric_message_t msg = { \
-        .format = GMETRIC_FORMAT_31, \
-        .type = GMETRIC_VALUE_STRING, \
-        .name = myname, \
-        .group = mygroup, \
-        .hostname = ganglia_spoof, \
-        .value.v_string = myvalue, \
-        .units = myunit, \
-        .slope = GMETRIC_SLOPE_BOTH, \
-        .tmax = flush_interval + 10, \
-        .dmax = flush_interval + 10, \
-        .spoof = 1 \
-    }; \
-    int len = gmetric_send(&gm, &msg); \
-    if (len != -1) { \
-        syslog(LOG_INFO, "Sent gmetric STRING message %s length %d", myname, len); \
-    } else { \
-        syslog(LOG_ERR, "Failed to send gmetric %s", myname); \
-    } \
-    }
 
 #endif

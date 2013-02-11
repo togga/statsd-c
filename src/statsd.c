@@ -52,7 +52,7 @@ pthread_t thread_udp;
 pthread_t thread_mgmt;
 pthread_t thread_flush;
 pthread_t thread_queue;
-int port = PORT, mgmt_port = MGMT_PORT, ganglia_port = GANGLIA_PORT, flush_interval = FLUSH_INTERVAL;
+int port = PORT, mgmt_port = MGMT_PORT, flush_interval = FLUSH_INTERVAL;
 int debug = 0, friendly = 0, clear_stats = 0, daemonize = 0, enable_gmetric = 0, enable_graphite = 0, graphite_port = 2003;
 char *graphite_host = NULL, *lock_file = NULL;
 int percentiles[5], num_percentiles = 0;
@@ -214,11 +214,7 @@ void syntax(char *argv[])
     fprintf(stderr, "\t-p port         set statsd udp listener port (default 8125)\n");
     fprintf(stderr, "\t-m port         set statsd management port (default 8126)\n");
     fprintf(stderr, "\t-s file         serialize state to and from file (default disabled)\n");
-    fprintf(stderr, "\t-G host         ganglia host (default disabled)\n");
-    fprintf(stderr, "\t-g port         ganglia port (default 8649)\n");
     fprintf(stderr, "\t-R host         graphite host (default disabled)\n");
-    fprintf(stderr, "\t-S spoofhost    ganglia spoof host (default statsd:statsd)\n");
-    fprintf(stderr, "\t-P prefix       ganglia metric prefix (default is none)\n");
     fprintf(stderr, "\t-l lockfile     lock file (only used when daemonizing)\n");
     fprintf(stderr, "\t-h              this help display\n");
     fprintf(stderr, "\t-d              enable debug\n");
@@ -1243,31 +1239,6 @@ void p_thread_flush(void *ptr)
                 {
                         utstring_printf(statString, "stats.%s %Lf %ld\nstats_gauges_%s %Lf %ld\n", s_gauge->key, value, ts, s_gauge->key, s_gauge->value, ts);
                 }
-#if 0
-                if (enable_gmetric)
-                {
-                    {
-                        char *k = NULL;
-                        if (ganglia_metric_prefix != NULL)
-                        {
-                            k = malloc(strlen(s_gauge->key) + strlen(ganglia_metric_prefix) + 1);
-                            sprintf(k, "%s%s", ganglia_metric_prefix, s_gauge->key);
-                        }
-                        else
-                        {
-                            k = strdup(s_gauge->key);
-                        }
-                        SEND_GMETRIC_DOUBLE(k, k, value, "gauge");
-                        if (k) free(k);
-                    }
-                    {
-                        //char *k = malloc(strlen(s_counter->key) + 13);
-                        // sprintf(k, "%s", s_counter->key);
-                        SEND_GMETRIC_DOUBLE(s_gauge->key, s_gauge->key, s_gauge->value, "gauge");
-                        //if (k) free(k);
-                    }
-                }
-#endif
                 numStats++;
             }
             if (s_gauge) free(s_gauge);
@@ -1283,12 +1254,6 @@ void p_thread_flush(void *ptr)
             {
                 utstring_printf(statString, "statsd.numStats %d %ld\n", numStats, ts);
             }
-#if 0
-            if (enable_gmetric)
-            {
-                SEND_GMETRIC_INT("statsd", "statsd_numstats_collected", numStats, "count");
-            }
-#endif
         }
 
         /* TODO: Flush to graphite */
@@ -1345,12 +1310,6 @@ void p_thread_flush(void *ptr)
             }
         }
 
-#if 0
-        if (enable_gmetric)
-        {
-            gmetric_close(&gm);
-        }
-#endif
         if (ts_string)
         {
             free(ts_string);
