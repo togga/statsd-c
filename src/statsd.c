@@ -53,8 +53,8 @@ pthread_t thread_mgmt;
 pthread_t thread_flush;
 pthread_t thread_queue;
 int port = PORT, mgmt_port = MGMT_PORT, flush_interval = FLUSH_INTERVAL;
-int debug = 0, friendly = 0, clear_stats = 0, daemonize = 0, enable_gmetric = 0, enable_graphite = 0, graphite_port = 2003;
-char *graphite_host = NULL, *lock_file = NULL;
+int debug = 0, friendly = 0, clear_stats = 0, daemonize = 0, graphite_port = 2003;
+char *graphite_host = "localhost", *lock_file = NULL;
 int percentiles[5], num_percentiles = 0;
 
 /*
@@ -277,7 +277,6 @@ int main(int argc, char *argv[])
             break;
         case 'R':
             graphite_host = strdup(optarg);
-            enable_graphite = 1;
             printf("Graphite host %s\n", graphite_host);
             break;
         case 'l':
@@ -1091,10 +1090,7 @@ void p_thread_flush(void *ptr)
             HASH_ITER(hh, counters, s_counter, tmp)
             {
                 long double value = s_counter->value / flush_interval;
-                if (enable_graphite)
-                {
-                    utstring_printf(statString, "stats.%s %Lf %ld\nstats_counts_%s %Lf %ld\n", s_counter->key, value, ts, s_counter->key, s_counter->value, ts);
-                }
+                utstring_printf(statString, "stats.%s %Lf %ld\nstats_counts_%s %Lf %ld\n", s_counter->key, value, ts, s_counter->key, s_counter->value, ts);
 
                 /* Clear counter after we're done with it */
                 wait_for_counters_lock();
@@ -1171,54 +1167,18 @@ void p_thread_flush(void *ptr)
                     remove_timers_lock();
 
 
-                    if (enable_graphite)
-                    {
-                        utstring_printf(statString, "stats.timers.%s.mean %f %ld\n"
-                            "stats.timers.%s.upper %f %ld\n"
-                            "stats.timers.%s.upper_%d %f %ld\n"
-                            "stats.timers.%s.lower %f %ld\n"
-                            "stats.timers.%s.count %d %ld\n",
-                            s_timer->key, mean, ts,
-                            s_timer->key, max, ts,
-                            s_timer->key, pctThreshold, maxAtThreshold, ts,
-                            s_timer->key, min, ts,
-                            s_timer->key, s_timer->count, ts
-                        );
-                    }
+                    utstring_printf(statString, "stats.timers.%s.mean %f %ld\n"
+                        "stats.timers.%s.upper %f %ld\n"
+                        "stats.timers.%s.upper_%d %f %ld\n"
+                        "stats.timers.%s.lower %f %ld\n"
+                        "stats.timers.%s.count %d %ld\n",
+                        s_timer->key, mean, ts,
+                        s_timer->key, max, ts,
+                        s_timer->key, pctThreshold, maxAtThreshold, ts,
+                        s_timer->key, min, ts,
+                        s_timer->key, s_timer->count, ts
+                    );
 
-#if 0
-                    if (enable_gmetric)
-                    {
-                        {
-                            // Mean value. Convert to seconds
-                            char k[strlen(s_timer->key) + 6];
-                            sprintf(k, "%s_mean", s_timer->key);
-                            SEND_GMETRIC_DOUBLE(s_timer->key, k, mean/1000, "sec");
-                        }
-                        {
-                            // Max value. Convert to seconds
-                            char k[strlen(s_timer->key) + 7];
-                            sprintf(k, "%s_upper", s_timer->key);
-                            SEND_GMETRIC_DOUBLE(s_timer->key, k, max/1000, "sec");
-                        }
-                        {
-                            // Percentile value. Convert to seconds
-                            char k[strlen(s_timer->key) + 12];
-                            sprintf(k, "%s_%dth_pct", s_timer->key, pctThreshold);
-                            SEND_GMETRIC_DOUBLE(s_timer->key, k, maxAtThreshold/1000, "sec");
-                        }
-                        {
-                            char k[strlen(s_timer->key) + 7];
-                            sprintf(k, "%s_lower", s_timer->key);
-                            SEND_GMETRIC_DOUBLE(s_timer->key, k, min/1000, "sec");
-                        }
-                        {
-                            char k[strlen(s_timer->key) + 7];
-                            sprintf(k, "%s_count", s_timer->key);
-                            SEND_GMETRIC_INT(s_timer->key, k, s_timer->count, "count");
-                        }
-                    }
-#endif
                 }
                 numStats++;
             }
@@ -1235,10 +1195,7 @@ void p_thread_flush(void *ptr)
             HASH_ITER(hh, gauges, s_gauge, tmp)
             {
                 long double value = s_gauge->value;
-                if (enable_graphite)
-                {
-                        utstring_printf(statString, "stats.%s %Lf %ld\nstats_gauges_%s %Lf %ld\n", s_gauge->key, value, ts, s_gauge->key, s_gauge->value, ts);
-                }
+                utstring_printf(statString, "stats.%s %Lf %ld\nstats_gauges_%s %Lf %ld\n", s_gauge->key, value, ts, s_gauge->key, s_gauge->value, ts);
                 numStats++;
             }
             if (s_gauge) free(s_gauge);
@@ -1250,64 +1207,56 @@ void p_thread_flush(void *ptr)
             -------------------------------------------------------------------- */
 
         {
-            if (enable_graphite)
+            utstring_printf(statString, "statsd.numStats %d %ld\n", numStats, ts);
+        }
+
+        printf("Messages:\n%s", utstring_body(statString));
+
+        int nova = 0, sock = -1;
+        struct hostent* result = NULL;
+        struct sockaddr_in sa;
+#ifdef __linux__
+        struct hostent he;
+        char tmpbuf[1024];
+        int local_errno = 0;
+        if (gethostbyname_r(graphite_host, &he, tmpbuf, sizeof(tmpbuf),
+                                                &result, &local_errno))
+        {
+            nova = 1;
+        }
+#else
+        result = gethostbyname(graphite_host);
+#endif
+        if (result == NULL || result->h_addr_list[0] == NULL || result->h_length != 4)
+        {
+            nova = 1;
+        }
+
+        /* h_addr_list[0] is raw memory */
+        uint32_t* ip = (uint32_t*) result->h_addr_list[0];
+
+        if (!nova)
+        {
+            sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+            if (sock == -1)
             {
-                utstring_printf(statString, "statsd.numStats %d %ld\n", numStats, ts);
+                nova = 1;
             }
         }
 
-        /* TODO: Flush to graphite */
-        if (enable_graphite)
+        if (!nova)
         {
-            printf("Messages:\n%s", utstring_body(statString));
+            memset(&sa, 0, sizeof(struct sockaddr_in));
+            sa.sin_family = AF_INET;
+            sa.sin_port = htons(port);
+            memcpy(&(sa.sin_addr), &ip, sizeof(ip));
+        }
 
-            int nova = 0, sock = -1;
-            struct hostent* result = NULL;
-            struct sockaddr_in sa;
-#ifdef __linux__
-            struct hostent he;
-            char tmpbuf[1024];
-            int local_errno = 0;
-            if (gethostbyname_r(graphite_host, &he, tmpbuf, sizeof(tmpbuf),
-                                                    &result, &local_errno))
-            {
-                nova = 1;
-            }
-#else
-            result = gethostbyname(graphite_host);
-#endif
-            if (result == NULL || result->h_addr_list[0] == NULL ||
-                    result->h_length != 4)
-            {
-                nova = 1;
-            }
-
-            /* h_addr_list[0] is raw memory */
-            uint32_t* ip = (uint32_t*) result->h_addr_list[0];
-
-            if (!nova)
-            {
-                sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-                if (sock == -1)
-                {
-                    nova = 1;
-                }
-            }
-
-            if (!nova)
-            {
-                memset(&sa, 0, sizeof(struct sockaddr_in));
-                sa.sin_family = AF_INET;
-                sa.sin_port = htons(port);
-                memcpy(&(sa.sin_addr), &ip, sizeof(ip));
-            }
-
-            if (!nova)
-            {
-                connect(sock, (struct sockaddr *)&ip, sizeof(ip));
-                send(sock, utstring_body(statString), utstring_len(statString), 0);
-                close(sock);
-            }
+        if (!nova)
+        {
+            connect(sock, (struct sockaddr *)&ip, sizeof(ip));
+            send(sock, utstring_body(statString), utstring_len(statString), 0);
+            close(sock);
         }
 
         if (ts_string)
@@ -1315,10 +1264,7 @@ void p_thread_flush(void *ptr)
             free(ts_string);
         }
 
-        if (enable_graphite)
-        {
-            utstring_free(statString);
-        }
+        utstring_free(statString);
     }
 
     syslog(LOG_INFO, "Thread[Flush]: Ending thread %d\n", (int) *((int *) ptr));
