@@ -20,7 +20,6 @@
 
 #include <event.h>
 
-#include "json-c/json.h"
 #include "uthash/utarray.h"
 #include "uthash/utstring.h"
 #include "queue.h"
