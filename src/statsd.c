@@ -1212,7 +1212,7 @@ void p_thread_flush(void *ptr)
 
         printf("Messages:\n%s", utstring_body(statString));
 
-        int nova = 0, sock = -1;
+        int failure = 0, sock = -1;
         struct hostent* result = NULL;
         struct sockaddr_in sa;
 #ifdef __linux__
@@ -1222,29 +1222,29 @@ void p_thread_flush(void *ptr)
         if (gethostbyname_r(graphite_host, &he, tmpbuf, sizeof(tmpbuf),
                                                 &result, &local_errno))
         {
-            nova = 1;
+            failure = 1;
         }
 #else
         result = gethostbyname(graphite_host);
 #endif
         if (result == NULL || result->h_addr_list[0] == NULL || result->h_length != 4)
         {
-            nova = 1;
+            failure = 1;
         }
 
         /* h_addr_list[0] is raw memory */
         uint32_t* ip = (uint32_t*) result->h_addr_list[0];
 
-        if (!nova)
+        if (!failure)
         {
             sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
             if (sock == -1)
             {
-                nova = 1;
+                failure = 1;
             }
         }
 
-        if (!nova)
+        if (!failure)
         {
             memset(&sa, 0, sizeof(struct sockaddr_in));
             sa.sin_family = AF_INET;
@@ -1252,7 +1252,7 @@ void p_thread_flush(void *ptr)
             memcpy(&(sa.sin_addr), &ip, sizeof(ip));
         }
 
-        if (!nova)
+        if (!failure)
         {
             connect(sock, (struct sockaddr *)&ip, sizeof(ip));
             send(sock, utstring_body(statString), utstring_len(statString), 0);
