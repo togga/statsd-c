@@ -8,7 +8,7 @@ OBJ=$(OBJDIR)/statsd.o $(OBJDIR)/strings.o $(OBJDIR)/queue.o
 
 .PHONY: all clean
 
-all: $(BINDIR) $(BINDIR)/statsd
+all: $(BINDIR) $(BINDIR)/statsd $(BINDIR)/statsd_client
 
 clean:
 	-rm -rf $(BINDIR)
@@ -19,6 +19,9 @@ $(BINDIR):
 
 $(BINDIR)/statsd: $(OBJDIR) $(OBJ)
 	$(CC) $(LINKFLAGS) -o $(BINDIR)/statsd $(OBJ)
+
+$(BINDIR)/statsd_client: $(OBJDIR) $(OBJDIR)/statsd_client.o
+	$(CC) $(LINKFLAGS) -o $(BINDIR)/statsd_client $(OBJDIR)/statsd_client.o
 
 $(OBJDIR):
 	mkdir $(OBJDIR)
@@ -31,3 +34,7 @@ $(OBJDIR)/strings.o: $(SRC)/strings.c
 
 $(OBJDIR)/queue.o: $(SRC)/queue.c
 	$(CC) $(CFLAGS) -c -o $(OBJDIR)/queue.o $(SRC)/queue.c
+
+$(OBJDIR)/statsd_client.o: $(SRC)/statsd_client.c
+	$(CC) $(CFLAGS) -c -o $(OBJDIR)/statsd_client.o $(SRC)/statsd_client.c
+
