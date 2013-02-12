@@ -1,8 +1,6 @@
 #ifndef COUNTERS_H_INCLUDED
 #define COUNTERS_H_INCLUDED
 
-#include <semaphore.h>
-
 #include "uthash/uthash.h"
 
 typedef struct
@@ -13,9 +11,5 @@ typedef struct
 } statsd_counter_t;
 
 extern statsd_counter_t *counters;
-extern sem_t counters_lock;
-
-#define wait_for_counters_lock() sem_wait(&counters_lock)
-#define remove_counters_lock() sem_post(&counters_lock)
 
 #endif

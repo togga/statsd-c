@@ -7,8 +7,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
-#include <pthread.h>
-#include <semaphore.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>

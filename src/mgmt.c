@@ -7,8 +7,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
-#include <pthread.h>
-#include <semaphore.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -293,5 +291,4 @@ void mgmt_stuff(struct mgmt * mgmt)
     /* end mgmt listener */
 
     syslog(LOG_INFO, "Thread[Mgmt]: Ending thread");
-    pthread_exit(0);
 }

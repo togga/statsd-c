@@ -21,9 +21,5 @@ typedef struct
 } statsd_stat_t;
 
 extern statsd_stat_t *stats;
-extern sem_t stats_lock;
-
-#define wait_for_stats_lock() sem_wait(&stats_lock)
-#define remove_stats_lock() sem_post(&stats_lock)
 
 #endif

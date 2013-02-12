@@ -7,8 +7,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
-#include <pthread.h>
-#include <semaphore.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -164,9 +162,7 @@ static void do_flush(struct flush * flush)
             utstring_printf(statString, "stats.%s %Lf %ld\nstats_counts_%s %Lf %ld\n", s_counter->key, value, ts, s_counter->key, s_counter->value, ts);
 
             /* Clear counter after we're done with it */
-            wait_for_counters_lock();
             s_counter->value = 0;
-            remove_counters_lock();
 
             numStats++;
         }
@@ -189,7 +185,6 @@ static void do_flush(struct flush * flush)
                 int pctThreshold = percentiles[0]; /* TODO FIXME: support multiple percentiles */
 
                 /* Sort all values in this timer list */
-                wait_for_timers_lock();
                 utarray_sort(s_timer->values, double_sort);
 
                 double min = 0;
@@ -235,8 +230,6 @@ static void do_flush(struct flush * flush)
                 /* Clear all values for this timer */
                 utarray_clear(s_timer->values);
                 s_timer->count = 0;
-                remove_timers_lock();
-
 
                 utstring_printf(statString, "stats.timers.%s.mean %f %ld\n"
                     "stats.timers.%s.upper %f %ld\n"

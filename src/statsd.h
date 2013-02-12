@@ -15,7 +15,6 @@ void process_stats_packet(char buf_in[]);
 /* Define stat flush interval in sec */
 #define FLUSH_INTERVAL 10
 
-#define THREAD_SLEEP(x) { pthread_mutex_t fakeMutex = PTHREAD_MUTEX_INITIALIZER; pthread_cond_t fakeCond = PTHREAD_COND_INITIALIZER; struct timespec timeToWait; struct timeval now; int rt; gettimeofday(&now,NULL); timeToWait.tv_sec = now.tv_sec + x; timeToWait.tv_nsec = now.tv_usec; pthread_mutex_lock(&fakeMutex); rt = pthread_cond_timedwait(&fakeCond, &fakeMutex, &timeToWait); if (rt != 0) { } pthread_mutex_unlock(&fakeMutex); }
 #define STREAM_SEND(x,y) if (send(x, y, strlen(y), 0) == -1) { perror("send error"); }
 #define STREAM_SEND_LONG(x,y) { \
     char z[32]; \

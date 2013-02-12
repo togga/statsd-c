@@ -7,8 +7,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
-#include <pthread.h>
-#include <semaphore.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -40,17 +38,11 @@
  */
 
 statsd_stat_t *stats = NULL;
-sem_t stats_lock;
 statsd_counter_t *counters = NULL;
-sem_t counters_lock;
 statsd_gauge_t *gauges = NULL;
-sem_t gauges_lock;
 statsd_timer_t *timers = NULL;
-sem_t timers_lock;
 UT_icd timers_icd = { sizeof(double), NULL, NULL, NULL };
 
-pthread_t thread_mgmt;
-pthread_t thread_flush;
 int port = PORT, mgmt_port = MGMT_PORT, flush_interval = FLUSH_INTERVAL;
 int debug = 0, friendly = 0, clear_stats = 0, daemonize = 0, graphite_port = 2003;
 char *graphite_host = "localhost", *lock_file = NULL;
@@ -62,15 +54,11 @@ void update_counter( char *key, double value, double sample_rate );
 void update_gauge( char *key, double value );
 void update_timer( char *key, double value );
 void process_stats_packet(char buf_in[]);
-void p_thread_mgmt(void *ptr);
-void p_thread_flush(void *ptr);
 
 void init_stats()
 {
     char startup_time[12];
     sprintf(startup_time, "%ld", time(NULL));
-
-    remove_stats_lock();
 
     update_stat("graphite", "last_flush", startup_time);
     update_stat("messages", "last_msg_seen", startup_time);
@@ -79,11 +67,6 @@ void init_stats()
 
 void cleanup()
 {
-    sem_destroy(&stats_lock);
-    sem_destroy(&timers_lock);
-    sem_destroy(&counters_lock);
-    sem_destroy(&gauges_lock);
-
     syslog(LOG_INFO, "Removing lockfile %s", lock_file != NULL ? lock_file : LOCK_FILE);
     unlink(lock_file != NULL ? lock_file : LOCK_FILE);
 }
@@ -126,6 +109,7 @@ void daemonize_server()
     {
         return;
     }
+
     pid = fork();
     if (pid < 0)
     {
@@ -171,8 +155,6 @@ void daemonize_server()
     signal(SIGTERM, sigterm_handler);
 }
 
-#define CHECK_PTHREAD_DETACH() if (rc == EINVAL) syslog(LOG_ERR, "pthread_detach returned EINVAL"); if (rc == ESRCH) syslog(LOG_ERR, "pthread_detach returned ESRCH")
-
 void syntax(char *argv[])
 {
     fprintf(stderr, "statsd version %s\n\n", STATSD_VERSION);
@@ -198,15 +180,9 @@ int main(int argc, char *argv[])
     struct event_base *event_base;
     struct udp *udp = NULL;
     struct flush *flush = NULL;
-    pthread_attr_t attr;
 
     signal(SIGINT, sigint_handler);
     signal(SIGQUIT, sigquit_handler);
-
-    sem_init(&stats_lock, 0, 1);
-    sem_init(&timers_lock, 0, 1);
-    sem_init(&counters_lock, 0, 1);
-    sem_init(&gauges_lock, 0, 1);
 
     while ((opt = getopt(argc, argv, "dDfhp:m:s:cg:G:F:S:P:l:T:R:")) != -1)
     {
@@ -290,10 +266,6 @@ int main(int argc, char *argv[])
     {
         syslog(LOG_DEBUG, "Daemonizing statsd-c");
         daemonize_server();
-
-        pthread_attr_init(&attr);
-        pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN + 1024 * 1024);
-        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     }
 
     /* allocate the libevent base object */
@@ -333,10 +305,8 @@ void add_timer( char *key, double value )
     if (t)
     {
         /* Add to old entry */
-        wait_for_timers_lock();
         t->count++;
         utarray_push_back(t->values, &value);
-        remove_timers_lock();
     }
     else
     {
@@ -348,9 +318,7 @@ void add_timer( char *key, double value )
         utarray_new(t->values, &timers_icd);
         utarray_push_back(t->values, &value);
 
-        wait_for_timers_lock();
         HASH_ADD_STR( timers, key, t );
-        remove_timers_lock();
     }
 }
 
@@ -373,9 +341,7 @@ void update_stat( char *group, char *key, char *value )
     {
         syslog(LOG_DEBUG, "Updating old stat entry");
 
-        wait_for_stats_lock();
         s->value = atol( value );
-        remove_stats_lock();
     }
     else
     {
@@ -388,9 +354,7 @@ void update_stat( char *group, char *key, char *value )
         s->value = atol(value);
         s->locked = 0;
 
-        wait_for_stats_lock();
         HASH_ADD( hh, stats, name, sizeof(statsd_stat_name_t), s );
-        remove_stats_lock();
     }
 }
 
@@ -404,15 +368,11 @@ void update_counter( char *key, double value, double sample_rate)
         syslog(LOG_DEBUG, "Updating old counter entry");
         if (sample_rate == 0)
         {
-            wait_for_counters_lock();
             c->value = c->value + value;
-            remove_counters_lock();
         }
         else
         {
-            wait_for_counters_lock();
             c->value = c->value + ( value * ( 1 / sample_rate ) );
-            remove_counters_lock();
         }
     }
     else
@@ -431,9 +391,7 @@ void update_counter( char *key, double value, double sample_rate)
             c->value = value * ( 1 / sample_rate );
         }
 
-        wait_for_counters_lock();
         HASH_ADD_STR( counters, key, c );
-        remove_counters_lock();
     }
 }
 
@@ -447,9 +405,7 @@ void update_gauge( char *key, double value )
     if (g)
     {
         syslog(LOG_DEBUG, "Updating old timer entry");
-        wait_for_gauges_lock();
         g->value = value;
-        remove_gauges_lock();
     }
     else
     {
@@ -459,9 +415,7 @@ void update_gauge( char *key, double value )
         strcpy(g->key, key);
         g->value = value;
 
-        wait_for_gauges_lock();
         HASH_ADD_STR( gauges, key, g );
-        remove_gauges_lock();
     }
 }
 
@@ -475,10 +429,8 @@ void update_timer(char *key, double value)
     if (t)
     {
         syslog(LOG_DEBUG, "Updating old timer entry");
-        wait_for_timers_lock();
         utarray_push_back(t->values, &value);
         t->count++;
-        remove_timers_lock();
     }
     else
     {
@@ -491,13 +443,9 @@ void update_timer(char *key, double value)
         utarray_push_back(t->values, &value);
         t->count++;
 
-        wait_for_timers_lock();
         HASH_ADD_STR( timers, key, t );
-        remove_timers_lock();
     }
 }
-
-
 
 void process_stats_packet(char buf_in[])
 {
