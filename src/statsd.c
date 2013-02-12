@@ -464,16 +464,19 @@ void process_stats_packet(char buf_in[])
         return;
     }
 
-    for (i = 1, bits=&buf_in[0]; ; i++, bits=NULL)
+    for (i = 1, bits=buf_in; ; i++, bits=NULL)
     {
         syslog(LOG_DEBUG, "i = %d\n", i);
         token = strtok_r(bits, ":", &save);
         if (token == NULL)
-            { break; }
+        {
+            break;
+        }
+
         if (i == 1)
         {
             syslog(LOG_DEBUG, "Found token '%s', key name\n", token);
-            key_name = strdup( token );
+            key_name = strdup(token);
             sanitize_key(key_name);
             /* break; */
         }
@@ -562,6 +565,11 @@ void process_stats_packet(char buf_in[])
                 {
                     /* Handle non-timer, as counter */
                     sample_rate = strtod( (s_sample_rate + 1), (char **) NULL );
+                }
+                else
+                {
+                    /* sample_rate is assumed to be 1.0 if not specified */
+                    sample_rate = 1.0;
                 }
                 update_counter(key_name, value, sample_rate);
                 syslog(LOG_DEBUG, "Found key name '%s'\n", key_name);
