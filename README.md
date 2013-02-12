@@ -2,8 +2,7 @@ STATSD-C
 ========
 
 This is the code from jbuchbinder/statsd-c with the JSON stuff and Gaglia/Gmetric stuff
-removed. I want a minimal statsd server written in C for Graphite. I don't care for Ganglia
-or JSON, so I have no use for that code.
+removed. The goal is to have a minimal statsd server written in C for Graphite.
 
 I also plan to build this using libevent asynchronous IO instead of pthreads, so the threading
 is going away soon.

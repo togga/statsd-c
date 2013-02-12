@@ -22,13 +22,15 @@
 
 #include "uthash/utarray.h"
 #include "uthash/utstring.h"
-#include "queue.h"
 #include "statsd.h"
 #include "stats.h"
 #include "timers.h"
 #include "counters.h"
 #include "gauges.h"
 #include "strings.h"
+#include "udp.h"
+#include "flush.h"
+#include "mgmt.h"
 
 #define STATSD_VERSION "0.1.0"
 #define LOCK_FILE "/tmp/statsd.lock"
@@ -47,19 +49,12 @@ statsd_timer_t *timers = NULL;
 sem_t timers_lock;
 UT_icd timers_icd = { sizeof(double), NULL, NULL, NULL };
 
-int stats_udp_socket, stats_mgmt_socket;
-pthread_t thread_udp;
 pthread_t thread_mgmt;
 pthread_t thread_flush;
-pthread_t thread_queue;
 int port = PORT, mgmt_port = MGMT_PORT, flush_interval = FLUSH_INTERVAL;
 int debug = 0, friendly = 0, clear_stats = 0, daemonize = 0, graphite_port = 2003;
 char *graphite_host = "localhost", *lock_file = NULL;
 int percentiles[5], num_percentiles = 0;
-
-/*
- * FUNCTION PROTOTYPES
- */
 
 void add_timer( char *key, double value );
 void update_stat( char *group, char *key, char *value);
@@ -67,11 +62,8 @@ void update_counter( char *key, double value, double sample_rate );
 void update_gauge( char *key, double value );
 void update_timer( char *key, double value );
 void process_stats_packet(char buf_in[]);
-void dump_stats();
-void p_thread_udp(void *ptr);
 void p_thread_mgmt(void *ptr);
 void p_thread_flush(void *ptr);
-void p_thread_queue(void *ptr);
 
 void init_stats()
 {
@@ -87,17 +79,6 @@ void init_stats()
 
 void cleanup()
 {
-    pthread_cancel(thread_flush);
-    pthread_cancel(thread_udp);
-    pthread_cancel(thread_mgmt);
-    pthread_cancel(thread_queue);
-
-    if (stats_udp_socket)
-    {
-        syslog(LOG_INFO, "Closing UDP stats socket.");
-        close(stats_udp_socket);
-    }
-
     sem_destroy(&stats_lock);
     sem_destroy(&timers_lock);
     sem_destroy(&counters_lock);
@@ -105,13 +86,6 @@ void cleanup()
 
     syslog(LOG_INFO, "Removing lockfile %s", lock_file != NULL ? lock_file : LOCK_FILE);
     unlink(lock_file != NULL ? lock_file : LOCK_FILE);
-}
-
-void die_with_error(char *s)
-{
-    perror(s);
-    cleanup();
-    exit(1);
 }
 
 void sighup_handler (int signum)
@@ -140,14 +114,6 @@ void sigterm_handler (int signum)
     syslog(LOG_ERR, "SIGTERM caught");
     cleanup();
     exit(1);
-}
-
-int double_sort (const void *a, const void *b)
-{
-    double _a = *(double *)a;
-    double _b = *(double *)b;
-    if (_a == _b) return 0;
-    return (_a < _b) ? -1 : 1;
 }
 
 void daemonize_server()
@@ -227,10 +193,11 @@ void syntax(char *argv[])
 
 int main(int argc, char *argv[])
 {
-    int pids[4] = { 1, 2, 3, 4 };
-    int opt, rc = 0;
+    int opt;
     char *p_raw, *pch;
     struct event_base *event_base;
+    struct udp *udp = NULL;
+    struct flush *flush = NULL;
     pthread_attr_t attr;
 
     signal(SIGINT, sigint_handler);
@@ -240,9 +207,6 @@ int main(int argc, char *argv[])
     sem_init(&timers_lock, 0, 1);
     sem_init(&counters_lock, 0, 1);
     sem_init(&gauges_lock, 0, 1);
-
-    queue_init();
-    event_base = event_base_new();
 
     while ((opt = getopt(argc, argv, "dDfhp:m:s:cg:G:F:S:P:l:T:R:")) != -1)
     {
@@ -332,38 +296,29 @@ int main(int argc, char *argv[])
         pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     }
 
-    pthread_create (&thread_udp,   daemonize ? &attr : NULL, (void *) &p_thread_udp,   (void *) &pids[0]);
-    pthread_create (&thread_mgmt,  daemonize ? &attr : NULL, (void *) &p_thread_mgmt,  (void *) &pids[1]);
-    pthread_create (&thread_flush, daemonize ? &attr : NULL, (void *) &p_thread_flush, (void *) &pids[2]);
-    pthread_create (&thread_queue, daemonize ? &attr : NULL, (void *) &p_thread_queue, (void *) &pids[3]);
+    /* allocate the libevent base object */
+    event_base = event_base_new();
 
-    if (daemonize)
+    /* start the UDP listener */
+    udp = udp_new();
+    udp_start(udp,event_base);
+
+    /* start the flush timer */
+    flush = flush_new(FLUSH_INTERVAL);
+    flush_start(flush,event_base);
+
+    syslog(LOG_DEBUG, "Entering event loop");
+    event_base_dispatch(event_base);
+    syslog(LOG_DEBUG, "Exiting event loop");
+
+    if (flush)
     {
-        syslog(LOG_DEBUG, "Destroying pthread attributes");
-        pthread_attr_destroy(&attr);
-        syslog(LOG_DEBUG, "Detaching pthreads");
-        rc = pthread_detach(thread_udp);
-        CHECK_PTHREAD_DETACH();
-        rc = pthread_detach(thread_mgmt);
-        CHECK_PTHREAD_DETACH();
-        rc = pthread_detach(thread_flush);
-        CHECK_PTHREAD_DETACH();
-        rc = pthread_detach(thread_queue);
-        CHECK_PTHREAD_DETACH();
-
-        /// WTF is this???
-        for (;;)
-        {
-        }
+        flush_cleanup(flush);
     }
-    else
+
+    if (udp)
     {
-        syslog(LOG_DEBUG, "Waiting for pthread termination");
-        pthread_join(thread_udp,   NULL);
-        pthread_join(thread_mgmt,  NULL);
-        pthread_join(thread_flush, NULL);
-        pthread_join(thread_queue, NULL);
-        syslog(LOG_DEBUG, "Pthreads terminated");
+        udp_cleanup(udp);
     }
 
     event_base_free(event_base);
@@ -542,55 +497,18 @@ void update_timer(char *key, double value)
     }
 }
 
-void dump_stats()
-{
-    if (debug)
-    {
-        {
-            syslog(LOG_DEBUG, "Stats dump:");
-            statsd_stat_t *s, *tmp;
-            HASH_ITER(hh, stats, s, tmp)
-            {
-                syslog(LOG_DEBUG, "%s.%s: %ld", s->name.group_name, s->name.key_name, s->value);
-            }
-            if (s)
-                free(s);
-            if (tmp)
-                free(tmp);
-        }
-
-        {
-            syslog(LOG_DEBUG, "Counters dump:");
-            statsd_counter_t *c, *tmp;
-            HASH_ITER(hh, counters, c, tmp)
-            {
-                syslog(LOG_DEBUG, "%s: %Lf", c->key, c->value);
-            }
-            if (c)
-                free(c);
-            if (tmp)
-                free(tmp);
-        }
-
-        {
-            syslog(LOG_DEBUG, "Gauges dump:");
-            statsd_gauge_t *g, *tmp;
-            HASH_ITER(hh, gauges, g, tmp)
-            {
-                syslog(LOG_DEBUG, "%s: %Lf", g->key, g->value);
-            }
-            if (g)
-                free(g);
-            if (tmp)
-                free(tmp);
-        }
-    }
-}
 
 
 void process_stats_packet(char buf_in[])
 {
     char *key_name = NULL;
+    char *save, *subsave, *token, *subtoken, *bits, *fields;
+    double value = 1.0;
+    int i;
+    int j;
+    char *s_sample_rate = NULL, *s_number = NULL;
+    double sample_rate;
+    bool is_timer = 0, is_gauge = 0;
 
     if (strlen(buf_in) < 2)
     {
@@ -598,10 +516,6 @@ void process_stats_packet(char buf_in[])
         return;
     }
 
-    char *save, *subsave, *token, *subtoken, *bits, *fields;
-    double value = 1.0;
-
-    int i;
     for (i = 1, bits=&buf_in[0]; ; i++, bits=NULL)
     {
         syslog(LOG_DEBUG, "i = %d\n", i);
@@ -618,9 +532,10 @@ void process_stats_packet(char buf_in[])
         else
         {
             syslog(LOG_DEBUG, "\ttoken [#%d] = %s\n", i, token);
-            char *s_sample_rate = NULL, *s_number = NULL;
-            double sample_rate = 1.0;
-            bool is_timer = 0, is_gauge = 0;
+            s_sample_rate = NULL;
+            s_number = NULL;
+            is_timer = 0;
+            is_gauge = 0;
 
             if (strstr(token, "|") == NULL)
             {
@@ -632,7 +547,6 @@ void process_stats_packet(char buf_in[])
             }
             else
             {
-                int j;
                 for (j = 1, fields = token; ; j++, fields = NULL)
                 {
                     subtoken = strtok_r(fields, "|", &subsave);
@@ -728,556 +642,5 @@ void process_stats_packet(char buf_in[])
     UPDATE_LAST_MSG_SEEN()
 }
 
-/*
- *  THREADS
- */
 
-void p_thread_udp(void *ptr)
-{
-    struct sockaddr_in si_me, si_other;
-    fd_set read_flags,write_flags;
-    struct timeval waitd;
-    int stat;
-
-    /* begin udp listener */
-    syslog(LOG_INFO, "Thread[Udp]: Starting thread %d\n", (int) *((int *) ptr));
-
-    if ((stats_udp_socket=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP))==-1)
-        die_with_error("UDP: Could not grab socket.");
-
-    /* Reuse socket, please */
-    int on = 1;
-    setsockopt(stats_udp_socket, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-
-    /* Use non-blocking sockets */
-    int flags = fcntl(stats_udp_socket, F_GETFL, 0);
-    fcntl(stats_udp_socket, F_SETFL, flags | O_NONBLOCK);
-
-    memset((char *) &si_me, 0, sizeof(si_me));
-    si_me.sin_family = AF_INET;
-    si_me.sin_port = htons(port);
-    si_me.sin_addr.s_addr = htonl(INADDR_ANY);
-    syslog(LOG_DEBUG, "UDP: Binding to socket.");
-    if (bind(stats_udp_socket, (struct sockaddr *)&si_me, sizeof(si_me))==-1)
-            die_with_error("UDP: Could not bind");
-    syslog(LOG_DEBUG, "UDP: Bound to socket on port %d", port);
-
-    while (1)
-    {
-        waitd.tv_sec = 1;
-        waitd.tv_usec = 0;
-        FD_ZERO(&read_flags);
-        FD_ZERO(&write_flags);
-        FD_SET(stats_udp_socket, &read_flags);
-
-        stat = select(stats_udp_socket+1, &read_flags, &write_flags, (fd_set*)0, &waitd);
-        /* If we can't do anything for some reason, wait a bit */
-        if (stat < 0)
-        {
-            syslog(LOG_INFO, "Can't do anything, stat == %d", stat);
-            sleep(1);
-            continue;
-        }
-
-        char buf_in[BUFLEN];
-        if (FD_ISSET(stats_udp_socket, &read_flags))
-        {
-            FD_CLR(stats_udp_socket, &read_flags);
-            memset(&buf_in, 0, sizeof(buf_in));
-            if (read(stats_udp_socket, buf_in, sizeof(buf_in)) <= 0)
-            {
-                close(stats_udp_socket);
-                break;
-            }
-            /* make sure that the buf_in is NULL terminated */
-            buf_in[BUFLEN - 1] = 0;
-
-            syslog(LOG_DEBUG, "UDP: Received packet from %s:%d\nData: %s\n\n",
-                    inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port), buf_in);
-
-            char *packet = strdup(buf_in);
-            syslog(LOG_DEBUG, "UDP: Storing packet in queue");
-            queue_store( packet );
-            syslog(LOG_DEBUG, "UDP: Stored packet in queue");
-        }
-    }
-
-    if (stats_udp_socket)
-    {
-        close(stats_udp_socket);
-    }
-
-    /* end udp listener */
-    syslog(LOG_INFO, "Thread[Udp]: Ending thread %d\n", (int) *((int *) ptr));
-    pthread_exit(0);
-}
-
-void p_thread_queue(void *ptr)
-{
-    syslog(LOG_INFO, "Thread[Queue]: Starting thread %d\n", (int) *((int *) ptr));
-
-    while (1)
-    {
-        char *packet = queue_pop_first();
-        while (packet != NULL)
-        {
-            char buf_in[BUFLEN];
-            memset(&buf_in, 0, sizeof(buf_in));
-            strcpy(buf_in, packet);
-
-            syslog(LOG_DEBUG, "Queue: Processing as standard packet");
-            process_stats_packet(buf_in);
-
-            packet = queue_pop_first();
-        }
-        sleep(100);
-    }
-
-    syslog(LOG_INFO, "Thread[Queue]: Ending thread %d\n", (int) *((int *) ptr));
-    pthread_exit(0);
-}
-
-void p_thread_mgmt(void *ptr)
-{
-    fd_set master;
-    fd_set read_fds;
-    struct sockaddr_in serveraddr;
-    struct sockaddr_in clientaddr;
-    int fdmax;
-    int newfd;
-    char buf[1024];
-    int nbytes;
-    int yes = 1;
-    int addrlen;
-    int i;
-
-    /* begin mgmt listener */
-    syslog(LOG_INFO, "Thread[Mgmt]: Starting thread %d\n", (int) *((int *) ptr));
-
-    FD_ZERO(&master);
-    FD_ZERO(&read_fds);
-
-    if ((stats_mgmt_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1)
-    {
-        perror("socket error");
-        exit(1);
-    }
-
-    if (setsockopt(stats_mgmt_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1)
-    {
-        perror("setsockopt error");
-        exit(1);
-    }
-
-    /* bind */
-    serveraddr.sin_family = AF_INET;
-    serveraddr.sin_addr.s_addr = INADDR_ANY;
-    serveraddr.sin_port = htons(mgmt_port);
-    memset(&(serveraddr.sin_zero), '\0', 8);
-
-    if (bind(stats_mgmt_socket, (struct sockaddr *)&serveraddr, sizeof(serveraddr)) == -1)
-    {
-        exit(1);
-    }
-
-    if (listen(stats_mgmt_socket, 10) == -1)
-    {
-        exit(1);
-    }
-
-    FD_SET(stats_mgmt_socket, &master);
-    fdmax = stats_mgmt_socket;
-
-    for (;;)
-    {
-        read_fds = master;
-
-        if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1)
-        {
-            perror("select error");
-            exit(1);
-        }
-
-        for (i = 0; i <= fdmax; i++)
-        {
-            if (FD_ISSET(i, &read_fds))
-            {
-                if (i == stats_mgmt_socket)
-                {
-                    addrlen = sizeof(clientaddr);
-                    if ((newfd = accept(stats_mgmt_socket, (struct sockaddr *)&clientaddr, (socklen_t *) &addrlen)) == -1)
-                    {
-                        perror("accept error");
-                    }
-                    else
-                    {
-                        FD_SET(newfd, &master);
-                        if(newfd > fdmax)
-                        {
-                            fdmax = newfd;
-                        }
-                        syslog(LOG_INFO, "New connection from %s on socket %d\n", inet_ntoa(clientaddr.sin_addr), newfd);
-
-                        /* Send prompt on connection */
-                        if (friendly)
-                        {
-                            STREAM_SEND(newfd, MGMT_PROMPT)
-                        }
-                    }
-                }
-                else
-                {
-                    /* handle data from a client */
-                    if ((nbytes = recv(i, buf, sizeof(buf), 0)) <= 0)
-                    {
-                        if (nbytes == 0)
-                        {
-                            syslog(LOG_INFO, "Socket %d hung up\n", i);
-                        }
-                        else
-                        {
-                            perror("recv() error");
-                        }
-
-                        close(i);
-                        FD_CLR(i, &master);
-                    }
-                    else
-                    {
-                        syslog(LOG_DEBUG, "Found data: '%s'\n", buf);
-                        char *bufptr = &buf[0];
-                        if (strncasecmp(bufptr, (char *)"help", 4) == 0)
-                        {
-                            STREAM_SEND(i, MGMT_HELP);
-                            if (friendly)
-                            {
-                                STREAM_SEND(i, MGMT_PROMPT);
-                            }
-                        }
-                        else if (strncasecmp(bufptr, (char *)"counters", 8) == 0)
-                        {
-                            /* send counters */
-
-                            statsd_counter_t *s_counter, *tmp;
-                            HASH_ITER(hh, counters, s_counter, tmp)
-                            {
-                                STREAM_SEND(i, s_counter->key);
-                                STREAM_SEND(i, ": ");
-                                STREAM_SEND_LONG_DOUBLE(i, s_counter->value);
-                                STREAM_SEND(i, "\n");
-                            }
-                            if (s_counter)
-                                free(s_counter);
-                            if (tmp)
-                                free(tmp);
-
-                            STREAM_SEND(i, MGMT_END);
-                            if (friendly)
-                            {
-                                STREAM_SEND(i, MGMT_PROMPT);
-                            }
-                        }
-                        else if (strncasecmp(bufptr, (char *)"timers", 6) == 0)
-                        {
-                            /* send timers */
-
-                            statsd_timer_t *s_timer, *tmp;
-                            HASH_ITER(hh, timers, s_timer, tmp)
-                            {
-                                STREAM_SEND(i, s_timer->key);
-                                STREAM_SEND(i, ": ");
-                                STREAM_SEND_INT(i, s_timer->count);
-
-                                if (s_timer->count > 0)
-                                {
-                                    double *j = NULL; bool first = 1;
-                                    STREAM_SEND(i, " [");
-                                    while ( (j=(double *)utarray_next(s_timer->values, j)) )
-                                    {
-                                        if (first == 1)
-                                        {
-                                            first = 0;
-                                            STREAM_SEND(i, ",");
-                                        }
-                                        STREAM_SEND_DOUBLE(i, *j);
-                                    }
-                                    STREAM_SEND(i, "]");
-                                }
-                                STREAM_SEND(i, "\n");
-                            }
-                            if (s_timer)
-                                free(s_timer);
-                            if (tmp)
-                                free(tmp);
-
-                            STREAM_SEND(i, MGMT_END);
-                            if (friendly)
-                            {
-                                STREAM_SEND(i, MGMT_PROMPT);
-                            }
-                        }
-                        else if (strncasecmp(bufptr, (char *)"stats", 5) == 0)
-                        {
-                            /* send stats */
-
-                            statsd_stat_t *s_stat, *tmp;
-                            HASH_ITER(hh, stats, s_stat, tmp)
-                            {
-                                if (strlen(s_stat->name.group_name) > 1)
-                                {
-                                    STREAM_SEND(i, s_stat->name.group_name);
-                                    STREAM_SEND(i, ".");
-                                }
-                                STREAM_SEND(i, s_stat->name.key_name);
-                                STREAM_SEND(i, ": ");
-                                STREAM_SEND_LONG(i, s_stat->value);
-                                STREAM_SEND(i, "\n");
-                            }
-                            if (s_stat)
-                                free(s_stat);
-                            if (tmp)
-                                free(tmp);
-
-                            STREAM_SEND(i, MGMT_END);
-                            if (friendly)
-                            {
-                                STREAM_SEND(i, MGMT_PROMPT);
-                            }
-                        }
-                        else if (strncasecmp(bufptr, (char *)"quit", 4) == 0)
-                        {
-                            /* disconnect */
-                            close(i);
-                            FD_CLR(i, &master);
-                        }
-                        else
-                        {
-                            STREAM_SEND(i, MGMT_BADCOMMAND);
-                            if (friendly)
-                            {
-                                STREAM_SEND(i, MGMT_PROMPT);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /* end mgmt listener */
-
-    syslog(LOG_INFO, "Thread[Mgmt]: Ending thread %d\n", (int) *((int *) ptr));
-    pthread_exit(0);
-}
-
-void p_thread_flush(void *ptr)
-{
-    syslog(LOG_INFO, "Thread[Flush]: Starting thread %d\n", (int) *((int *) ptr));
-
-    while (1)
-    {
-        THREAD_SLEEP(flush_interval);
-
-        dump_stats();
-
-        long ts = time(NULL);
-        char *ts_string = ltoa(ts);
-        int numStats = 0;
-        UT_string *statString;
-
-        utstring_new(statString);
-
-        /* ---------------------------------------------------------------------
-            Process counter metrics
-            -------------------------------------------------------------------- */
-        {
-            statsd_counter_t *s_counter, *tmp;
-            HASH_ITER(hh, counters, s_counter, tmp)
-            {
-                long double value = s_counter->value / flush_interval;
-                utstring_printf(statString, "stats.%s %Lf %ld\nstats_counts_%s %Lf %ld\n", s_counter->key, value, ts, s_counter->key, s_counter->value, ts);
-
-                /* Clear counter after we're done with it */
-                wait_for_counters_lock();
-                s_counter->value = 0;
-                remove_counters_lock();
-
-                numStats++;
-            }
-            if (s_counter)
-                free(s_counter);
-            if (tmp)
-                free(tmp);
-        }
-
-        /* ---------------------------------------------------------------------
-            Process timer metrics
-            -------------------------------------------------------------------- */
-
-        {
-            statsd_timer_t *s_timer, *tmp;
-            HASH_ITER(hh, timers, s_timer, tmp)
-            {
-                if (s_timer->count > 0)
-                {
-                    int pctThreshold = percentiles[0]; /* TODO FIXME: support multiple percentiles */
-
-                    /* Sort all values in this timer list */
-                    wait_for_timers_lock();
-                    utarray_sort(s_timer->values, double_sort);
-
-                    double min = 0;
-                    double max = 0;
-                    {
-                        double *i = NULL; int count = 0;
-                        while( (i=(double *) utarray_next( s_timer->values, i)) )
-                        {
-                            if (count == 0)
-                            {
-                                min = *i;
-                                max = *i;
-                            }
-                            else
-                            {
-                                if (*i < min) min = *i;
-                                if (*i > max) max = *i;
-                            }
-                            count++;
-                        }
-                    }
-
-                    double mean = min;
-                    double maxAtThreshold = max;
-
-                    if (s_timer->count > 1)
-                    {
-                        // Find the index of the 90th percentile threshold
-                        int thresholdIndex = ( pctThreshold / 100.0 ) * s_timer->count;
-                        maxAtThreshold = * ( utarray_eltptr( s_timer->values, thresholdIndex - 1 ) );
-                        printf("Count = %d Thresh = %d, MaxThreshold = %f\n", s_timer->count, thresholdIndex, maxAtThreshold);
-
-                        double sum = 0;
-                        double *i = NULL; int count = 0;
-                        while( (i=(double *) utarray_next( s_timer->values, i)) && count < s_timer->count - 1 )
-                        {
-                            sum += *i;
-                            count++;
-                        }
-                        mean = sum / s_timer->count;
-                    }
-
-                    /* Clear all values for this timer */
-                    utarray_clear(s_timer->values);
-                    s_timer->count = 0;
-                    remove_timers_lock();
-
-
-                    utstring_printf(statString, "stats.timers.%s.mean %f %ld\n"
-                        "stats.timers.%s.upper %f %ld\n"
-                        "stats.timers.%s.upper_%d %f %ld\n"
-                        "stats.timers.%s.lower %f %ld\n"
-                        "stats.timers.%s.count %d %ld\n",
-                        s_timer->key, mean, ts,
-                        s_timer->key, max, ts,
-                        s_timer->key, pctThreshold, maxAtThreshold, ts,
-                        s_timer->key, min, ts,
-                        s_timer->key, s_timer->count, ts
-                    );
-
-                }
-                numStats++;
-            }
-            if (s_timer) free(s_timer);
-            if (tmp) free(tmp);
-        }
-
-        /* ---------------------------------------------------------------------
-            Process gauge metrics
-            -------------------------------------------------------------------- */
-
-        {
-            statsd_gauge_t *s_gauge, *tmp;
-            HASH_ITER(hh, gauges, s_gauge, tmp)
-            {
-                long double value = s_gauge->value;
-                utstring_printf(statString, "stats.%s %Lf %ld\nstats_gauges_%s %Lf %ld\n", s_gauge->key, value, ts, s_gauge->key, s_gauge->value, ts);
-                numStats++;
-            }
-            if (s_gauge) free(s_gauge);
-            if (tmp) free(tmp);
-        }
-
-        /* ---------------------------------------------------------------------
-            Process totals
-            -------------------------------------------------------------------- */
-
-        {
-            utstring_printf(statString, "statsd.numStats %d %ld\n", numStats, ts);
-        }
-
-        printf("Messages:\n%s", utstring_body(statString));
-
-        int failure = 0, sock = -1;
-        struct hostent* result = NULL;
-        struct sockaddr_in sa;
-#ifdef __linux__
-        struct hostent he;
-        char tmpbuf[1024];
-        int local_errno = 0;
-        if (gethostbyname_r(graphite_host, &he, tmpbuf, sizeof(tmpbuf),
-                                                &result, &local_errno))
-        {
-            failure = 1;
-        }
-#else
-        result = gethostbyname(graphite_host);
-#endif
-        if (result == NULL || result->h_addr_list[0] == NULL || result->h_length != 4)
-        {
-            printf("Cannot get hostname\n");
-            failure = 1;
-        }
-
-        /* h_addr_list[0] is raw memory */
-        uint32_t* ip = (uint32_t*) result->h_addr_list[0];
-
-        if (!failure)
-        {
-            sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-            if (sock == -1)
-            {
-                failure = 1;
-            }
-        }
-
-        if (!failure)
-        {
-            memset(&sa, 0, sizeof(struct sockaddr_in));
-            sa.sin_len = sizeof(struct sockaddr_in);
-            sa.sin_family = AF_INET;
-            sa.sin_port = htons(graphite_port);
-            memcpy(&(sa.sin_addr), ip, sizeof(*ip));
-        }
-
-        if (!failure)
-        {
-            printf("Sending data to %s:%d. addr = %08x\n", graphite_host, graphite_port, *ip);
-            int r = connect(sock, (struct sockaddr *)&sa, sizeof(sa));
-            printf("Connect result = %d\n", r);
-            int n = send(sock, utstring_body(statString), utstring_len(statString), 0);
-            printf("Send result = %d\n", n);
-            close(sock);
-        }
-
-        if (ts_string)
-        {
-            free(ts_string);
-        }
-
-        utstring_free(statString);
-    }
-
-    syslog(LOG_INFO, "Thread[Flush]: Ending thread %d\n", (int) *((int *) ptr));
-    pthread_exit(0);
-}
 

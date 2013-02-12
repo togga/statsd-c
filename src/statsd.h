@@ -1,6 +1,11 @@
 #ifndef STATSD_H_INCLUDED
 #define STATSD_H_INCLUDED
 
+extern int debug, friendly;
+
+void cleanup();
+void process_stats_packet(char buf_in[]);
+
 #define BUFLEN 1024
 
 /* Default statsd ports */
