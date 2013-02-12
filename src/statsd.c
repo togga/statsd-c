@@ -276,7 +276,7 @@ int main(int argc, char *argv[])
     udp_start(udp,event_base);
 
     /* start the flush timer */
-    flush = flush_new(FLUSH_INTERVAL);
+    flush = flush_new(flush_interval);
     flush_start(flush,event_base);
 
     syslog(LOG_DEBUG, "Entering event loop");
