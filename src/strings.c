@@ -9,12 +9,7 @@ void sanitize_key(char *k)
     int c = 0;
     while (*p != '\0')
     {
-        if (*p == '.')
-        {
-            *(dest + c) = '_';
-            c++;
-        }
-        else if (*p == '\\' || *p == '/')
+        if (*p == '\\' || *p == '/')
         {
             *(dest + c) = '-';
             c++;
