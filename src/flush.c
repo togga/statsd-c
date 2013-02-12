@@ -159,7 +159,7 @@ static void do_flush(struct flush * flush)
         HASH_ITER(hh, counters, s_counter, tmp)
         {
             long double value = s_counter->value / flush->interval;
-            utstring_printf(statString, "stats.%s %Lf %ld\nstats_counts_%s %Lf %ld\n", s_counter->key, value, ts, s_counter->key, s_counter->value, ts);
+            utstring_printf(statString, "stats.%s %Lf %ld\nstats.counts.%s %Lf %ld\n", s_counter->key, value, ts, s_counter->key, s_counter->value, ts);
 
             /* Clear counter after we're done with it */
             s_counter->value = 0;
