@@ -1,3 +1,11 @@
+/*
+ * statsd
+ *
+ * http://github.com/alanpearson/statsd-c
+ * (based upon http://github.com/jbuchbinder/statsd-c)
+ *
+ */
+
 #ifndef FLUSH_H_INCLUDED
 #define FLUSH_H_INCLUDED
 

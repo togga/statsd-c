@@ -1,3 +1,11 @@
+/*
+ * statsd
+ *
+ * http://github.com/alanpearson/statsd-c
+ * (based upon http://github.com/jbuchbinder/statsd-c)
+ *
+ */
+
 #ifndef STATS_H_INCLUDED
 #define STATS_H_INCLUDED
 

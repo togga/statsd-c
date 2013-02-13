@@ -1,3 +1,11 @@
+/*
+ * statsd
+ *
+ * http://github.com/alanpearson/statsd-c
+ * (based upon http://github.com/jbuchbinder/statsd-c)
+ *
+ */
+
 #ifndef MGMT_H_INCLUDED
 #define MGMT_H_INCLUDED
 
@@ -8,7 +16,7 @@ struct mgmt {
 };
 
 struct mgmt * mgmt_new(short port);
-void mgmt_start(struct mgmt * mgmt, struct event_base *ev_base);
+void mgmt_start(struct mgmt * mgmt, struct event_base * ev_base);
 void mgmt_cleanup(struct mgmt * mgmt);
 
 #endif

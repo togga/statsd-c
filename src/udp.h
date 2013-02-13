@@ -1,3 +1,11 @@
+/*
+ * statsd
+ *
+ * http://github.com/alanpearson/statsd-c
+ * (based upon http://github.com/jbuchbinder/statsd-c)
+ *
+ */
+
 #ifndef UDP_H_INCLUDED
 #define UDP_H_INCLUDED
 
