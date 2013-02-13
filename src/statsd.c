@@ -43,6 +43,9 @@ statsd_gauge_t *gauges = NULL;
 statsd_timer_t *timers = NULL;
 UT_icd timers_icd = { sizeof(double), NULL, NULL, NULL };
 
+struct event *ev_sig_hup = NULL, *ev_sig_term = NULL;
+struct event *ev_sig_int = NULL, *ev_sig_quit = NULL;
+
 int port = PORT, mgmt_port = MGMT_PORT, flush_interval = FLUSH_INTERVAL;
 int debug = 0, friendly = 0, clear_stats = 0, daemonize = 0, graphite_port = 2003;
 char *graphite_host = "localhost", *lock_file = NULL;
@@ -67,27 +70,24 @@ void init_stats()
 
 void cleanup()
 {
+    if (ev_sig_int) event_free(ev_sig_int);
+    if (ev_sig_quit) event_free(ev_sig_quit);
+    if (ev_sig_term) event_free(ev_sig_term);
+    if (ev_sig_hup) event_free(ev_sig_hup);
+
     syslog(LOG_INFO, "Removing lockfile %s", lock_file != NULL ? lock_file : LOCK_FILE);
     unlink(lock_file != NULL ? lock_file : LOCK_FILE);
+}
+
+static void signal_cb(evutil_socket_t fd, short event, void *arg)
+{
+    struct event *signal = *(struct event **)arg;
+    event_base_loopbreak(event_get_base(signal));
 }
 
 void sighup_handler (int signum)
 {
     syslog(LOG_ERR, "SIGHUP caught");
-    cleanup();
-    exit(1);
-}
-
-void sigint_handler (int signum)
-{
-    syslog(LOG_ERR, "SIGINT caught");
-    cleanup();
-    exit(1);
-}
-
-void sigquit_handler (int signum)
-{
-    syslog(LOG_ERR, "SIGQUIT caught");
     cleanup();
     exit(1);
 }
@@ -99,7 +99,7 @@ void sigterm_handler (int signum)
     exit(1);
 }
 
-void daemonize_server()
+void daemonize_server(struct event_base* event_base)
 {
     int pid;
     int lockfp;
@@ -151,8 +151,12 @@ void daemonize_server()
     signal(SIGTSTP, SIG_IGN);
     signal(SIGTTOU, SIG_IGN);
     signal(SIGTTIN, SIG_IGN);
-    signal(SIGHUP , sighup_handler);
-    signal(SIGTERM, sigterm_handler);
+
+    ev_sig_hup = evsignal_new(event_base, SIGHUP, signal_cb, &ev_sig_hup);
+    event_add(ev_sig_int, NULL);
+
+    ev_sig_term = evsignal_new(event_base, SIGTERM, signal_cb, &ev_sig_term);
+    event_add(ev_sig_term, NULL);
 }
 
 void syntax(char *argv[])
@@ -180,9 +184,6 @@ int main(int argc, char *argv[])
     struct event_base *event_base;
     struct udp *udp = NULL;
     struct flush *flush = NULL;
-
-    signal(SIGINT, sigint_handler);
-    signal(SIGQUIT, sigquit_handler);
 
     while ((opt = getopt(argc, argv, "dDfhp:m:s:cg:G:F:S:P:l:T:R:")) != -1)
     {
@@ -262,14 +263,21 @@ int main(int argc, char *argv[])
     /* Initialization of certain stats, here. */
     init_stats();
 
+    /* allocate the libevent base object */
+    event_base = event_base_new();
+
+    /* Initalize signal handling events */
+    ev_sig_int = evsignal_new(event_base, SIGINT, signal_cb, &ev_sig_int);
+    event_add(ev_sig_int, NULL);
+
+    ev_sig_quit = evsignal_new(event_base, SIGQUIT, signal_cb, &ev_sig_quit);
+    event_add(ev_sig_quit, NULL);
+
     if (daemonize)
     {
         syslog(LOG_DEBUG, "Daemonizing statsd-c");
-        daemonize_server();
+        daemonize_server(event_base);
     }
-
-    /* allocate the libevent base object */
-    event_base = event_base_new();
 
     /* start the UDP listener */
     udp = udp_new();
@@ -282,6 +290,8 @@ int main(int argc, char *argv[])
     syslog(LOG_DEBUG, "Entering event loop");
     event_base_dispatch(event_base);
     syslog(LOG_DEBUG, "Exiting event loop");
+
+    cleanup();
 
     if (flush)
     {
