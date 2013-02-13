@@ -22,9 +22,7 @@
 #include "uthash/utstring.h"
 #include "statsd.h"
 #include "stats.h"
-#include "timers.h"
 #include "counters.h"
-#include "gauges.h"
 #include "strings.h"
 #include "udp.h"
 
@@ -52,6 +50,7 @@ struct udp * udp_new()
 
     return udp;
 }
+
 
 void udp_cleanup(struct udp * udp)
 {

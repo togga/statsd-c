@@ -4,7 +4,7 @@ SRC=src
 CC=clang
 CFLAGS=-g -Wall -Werror
 
-OBJ=$(OBJDIR)/statsd.o $(OBJDIR)/strings.o $(OBJDIR)/udp.o $(OBJDIR)/mgmt.o $(OBJDIR)/flush.o
+OBJ=$(OBJDIR)/statsd.o $(OBJDIR)/strings.o $(OBJDIR)/udp.o $(OBJDIR)/counters.o $(OBJDIR)/mgmt.o $(OBJDIR)/flush.o
 
 .PHONY: all clean
 

@@ -22,9 +22,7 @@
 #include "uthash/utstring.h"
 #include "statsd.h"
 #include "stats.h"
-#include "timers.h"
 #include "counters.h"
-#include "gauges.h"
 #include "strings.h"
 #include "mgmt.h"
 
