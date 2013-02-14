@@ -10,7 +10,6 @@
 #define STATS_H_INCLUDED
 
 #include <stdbool.h>
-#include <semaphore.h>
 
 #include "uthash/uthash.h"
 
