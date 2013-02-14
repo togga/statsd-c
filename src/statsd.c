@@ -186,6 +186,7 @@ int main(int argc, char *argv[])
     struct event_base *event_base;
     struct udp *udp = NULL;
     struct flush *flush = NULL;
+    struct mgmt *mgmt = NULL;
 
     while ((opt = getopt(argc, argv, "dDfhp:m:s:cg:G:F:S:P:l:T:R:")) != -1)
     {
@@ -282,17 +283,29 @@ int main(int argc, char *argv[])
     }
 
     /* start the UDP listener */
-    udp = udp_new();
+    if ((udp = udp_new()) == NULL)
+        goto exit;
     udp_start(udp,event_base);
 
     /* start the flush timer */
-    flush = flush_new(flush_interval);
+    if ((flush = flush_new(flush_interval)) == NULL)
+        goto exit;
+
     flush_start(flush,event_base);
+
+    /* start the management listener */
+    if ((mgmt = mgmt_new(mgmt_port)) != NULL) {
+        if (mgmt_start(mgmt,event_base) != 0)
+        {
+            syslog(LOG_WARNING, "Could not start management interface");
+        }
+    }
 
     syslog(LOG_DEBUG, "Entering event loop");
     event_base_dispatch(event_base);
     syslog(LOG_DEBUG, "Exiting event loop");
 
+exit:
     cleanup();
 
     if (flush)
@@ -305,7 +318,15 @@ int main(int argc, char *argv[])
         udp_cleanup(udp);
     }
 
-    event_base_free(event_base);
+    if (mgmt)
+    {
+        mgmt_cleanup(mgmt);
+    }
+
+    if (event_base)
+    {
+        event_base_free(event_base);
+    }
 
     return 0;
 }

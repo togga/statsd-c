@@ -15,7 +15,12 @@
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <ctype.h>
 
+#include <event2/bufferevent.h>
+#include <event2/buffer.h>
+#include <event2/listener.h>
+#include <event2/util.h>
 #include <event2/event.h>
 
 #include "uthash/utarray.h"
@@ -27,6 +32,15 @@
 #include "mgmt.h"
 
 void mgmt_callback(int fd, short flags, void * param);
+
+static void mgmt_listener(struct evconnlistener *listener, evutil_socket_t fd, struct sockaddr *sa, int socklen, void *ptr);
+static void mgmt_readcb(struct bufferevent *bev, void *user_data);
+static void mgmt_writecb(struct bufferevent *bev, void *user_data);
+static void mgmt_eventcb(struct bufferevent *bev, short events, void *user_data);
+static void mgmt_parse_input(struct mgmt * mgmt, struct bufferevent *bev, char * bufptr, int nbytes);
+static void mgmt_send_stats(struct evbuffer* output);
+static void mgmt_send_timers(struct evbuffer* output);
+static void mgmt_send_counters(struct evbuffer* output);
 
 struct mgmt * mgmt_new(short port)
 {
@@ -43,10 +57,105 @@ struct mgmt * mgmt_new(short port)
 }
 
 
-void mgmt_start(struct mgmt * mgmt, struct event_base *ev_base)
+int mgmt_start(struct mgmt * mgmt, struct event_base *ev_base)
 {
+    struct sockaddr_in sin;
 
+    syslog(LOG_DEBUG,"starting mgmt listener\n");
+    memset(&sin, 0, sizeof(sin));
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons(mgmt->port);
+
+    mgmt->listener = evconnlistener_new_bind(ev_base, mgmt_listener, (void *)mgmt,
+        LEV_OPT_REUSEABLE|LEV_OPT_CLOSE_ON_FREE, -1,
+        (struct sockaddr*)&sin,
+        sizeof(sin));
+
+    if (!mgmt->listener) {
+        syslog(LOG_ERR, "Could not create a listener!\n");
+        return 1;
+    }
+
+    return 0;
 }
+
+
+static void mgmt_listener(struct evconnlistener *listener, evutil_socket_t fd,
+                          struct sockaddr *sa, int socklen, void *ptr)
+{
+    struct mgmt * mgmt = (struct mgmt *)ptr;
+    struct event_base *base = NULL;
+    struct bufferevent *bev;
+
+    base = evconnlistener_get_base(listener);
+
+    bev = bufferevent_socket_new(base, fd, BEV_OPT_CLOSE_ON_FREE);
+    if (!bev)
+    {
+        syslog(LOG_ERR, "Error constructing bufferevent!");
+        event_base_loopbreak(base);
+        return;
+    }
+
+    bufferevent_setcb(bev, mgmt_readcb, mgmt_writecb, mgmt_eventcb, mgmt);
+    bufferevent_disable(bev, EV_WRITE);
+    bufferevent_enable(bev, EV_READ);
+}
+
+static void mgmt_readcb(struct bufferevent *bev, void *user_data)
+{
+    struct mgmt * mgmt = (struct mgmt *)user_data;
+    struct evbuffer * input;
+    int nbytes, n, result;
+    char buffer[80];
+
+    input = bufferevent_get_input(bev);
+    nbytes = evbuffer_get_length(input);
+    DPRINTF("mgmt_readcb: %d bytes available\n", nbytes);
+
+    n = nbytes;
+    if (n > 79) n = 79;
+
+    DPRINTF("mgmt_readcb: attempting to read %d bytes\n", n);
+    result = evbuffer_remove(input, buffer, n);
+    if (result == -1)
+    {
+        DPRINTF("mgmt_readcb: could not read available bytes\n");
+    }
+    else
+    {
+        buffer[result] = 0;
+        DPRINTF("mgmt_readcb: read %d bytes: %s\n", result, buffer);
+
+        mgmt_parse_input(mgmt, bev, buffer, result);
+        bufferevent_enable(bev, EV_WRITE);
+    }
+}
+
+static void mgmt_writecb(struct bufferevent *bev, void *user_data)
+{
+    struct evbuffer *output = bufferevent_get_output(bev);
+    if (evbuffer_get_length(output) == 0)
+    {
+        bufferevent_disable(bev, EV_WRITE);
+    }
+}
+
+static void mgmt_eventcb(struct bufferevent *bev, short events, void *user_data)
+{
+    if (events & BEV_EVENT_EOF)
+    {
+        DPRINTF("Connection closed.\n");
+    }
+    else if (events & BEV_EVENT_ERROR)
+    {
+        syslog(LOG_ERR,"Got an error on the mgmt connection: %s\n", strerror(errno));
+    }
+    /* None of the other events can happen here, since we haven't enabled
+     * timeouts */
+    bufferevent_free(bev);
+}
+
 
 void mgmt_cleanup(struct mgmt * mgmt)
 {
@@ -59,234 +168,117 @@ void mgmt_cleanup(struct mgmt * mgmt)
     free(mgmt);
 }
 
-void mgmt_stuff(struct mgmt * mgmt)
+
+static void mgmt_parse_input(struct mgmt * mgmt, struct bufferevent *bev, char * bufptr, int nbytes)
 {
-    fd_set master;
-    fd_set read_fds;
-    struct sockaddr_in serveraddr;
-    struct sockaddr_in clientaddr;
-    int fdmax;
-    int newfd;
-    char buf[1024];
-    int nbytes;
-    int yes = 1;
-    int addrlen;
-    int i;
+    struct evbuffer * output = bufferevent_get_output(bev);
 
-    /* begin mgmt listener */
-    syslog(LOG_INFO, "Thread[Mgmt]: Starting\n");
+    while (nbytes > 0 && isspace(bufptr[nbytes-1]))
+        nbytes--;
 
-    FD_ZERO(&master);
-    FD_ZERO(&read_fds);
-
-    if ((mgmt->sock = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+    if (nbytes == 4 && strncmp(bufptr, (char *)"help", 4) == 0)
     {
-        perror("socket error");
-        exit(1);
+        STREAM_SEND(output, MGMT_HELP);
     }
-
-    if (setsockopt(mgmt->sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1)
+    else if (nbytes == 8 && strncmp(bufptr, (char *)"counters", 8) == 0)
     {
-        perror("setsockopt error");
-        exit(1);
+        mgmt_send_counters(output);
     }
-
-    /* bind */
-    serveraddr.sin_family = AF_INET;
-    serveraddr.sin_addr.s_addr = INADDR_ANY;
-    serveraddr.sin_port = htons(mgmt->port);
-    memset(&(serveraddr.sin_zero), '\0', 8);
-
-    if (bind(mgmt->sock, (struct sockaddr *)&serveraddr, sizeof(serveraddr)) == -1)
+    else if (nbytes == 6 && strncmp(bufptr, (char *)"timers", 6) == 0)
     {
-        exit(1);
+        mgmt_send_timers(output);
     }
-
-    if (listen(mgmt->sock, 10) == -1)
+    else if (nbytes == 5 && strncmp(bufptr, (char *)"stats", 5) == 0)
     {
-        exit(1);
+        mgmt_send_stats(output);
     }
-
-    FD_SET(mgmt->sock, &master);
-    fdmax = mgmt->sock;
-
-    for (;;)
+    else if (nbytes == 4 && strncmp(bufptr, (char *)"quit", 4) == 0)
     {
-        read_fds = master;
+        /* disconnect */
+        bufferevent_free(bev);
+    }
+    else
+    {
+        STREAM_SEND(output, MGMT_BADCOMMAND);
+    }
+}
 
-        if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1)
+static void mgmt_send_counters(struct evbuffer* output)
+{
+    /* send counters */
+    statsd_counter_t *s_counter, *tmp;
+    HASH_ITER(hh, counters, s_counter, tmp)
+    {
+        STREAM_SEND(output, s_counter->key);
+        STREAM_SEND(output, ": ");
+        STREAM_SEND_LONG_DOUBLE(output, s_counter->value);
+        STREAM_SEND(output, "\n");
+    }
+    if (s_counter)
+        free(s_counter);
+    if (tmp)
+        free(tmp);
+
+    STREAM_SEND(output, MGMT_END);
+}
+
+static void mgmt_send_timers(struct evbuffer* output)
+{
+    /* send timers */
+
+    statsd_timer_t *s_timer, *tmp;
+    HASH_ITER(hh, timers, s_timer, tmp)
+    {
+        STREAM_SEND(output, s_timer->key);
+        STREAM_SEND(output, ": ");
+        STREAM_SEND_INT(output, s_timer->count);
+
+        if (s_timer->count > 0)
         {
-            perror("select error");
-            exit(1);
-        }
-
-        for (i = 0; i <= fdmax; i++)
-        {
-            if (FD_ISSET(i, &read_fds))
+            double *j = NULL; bool first = 1;
+            STREAM_SEND(output, " [");
+            while ( (j=(double *)utarray_next(s_timer->values, j)) )
             {
-                if (i == mgmt->sock)
+                if (first == 1)
                 {
-                    addrlen = sizeof(clientaddr);
-                    if ((newfd = accept(mgmt->sock, (struct sockaddr *)&clientaddr, (socklen_t *) &addrlen)) == -1)
-                    {
-                        perror("accept error");
-                    }
-                    else
-                    {
-                        FD_SET(newfd, &master);
-                        if(newfd > fdmax)
-                        {
-                            fdmax = newfd;
-                        }
-                        syslog(LOG_INFO, "New connection from %s on socket %d\n", inet_ntoa(clientaddr.sin_addr), newfd);
-
-                        /* Send prompt on connection */
-                        if (friendly)
-                        {
-                            STREAM_SEND(newfd, MGMT_PROMPT)
-                        }
-                    }
+                    first = 0;
+                    STREAM_SEND(output, ",");
                 }
-                else
-                {
-                    /* handle data from a client */
-                    if ((nbytes = recv(i, buf, sizeof(buf), 0)) <= 0)
-                    {
-                        if (nbytes == 0)
-                        {
-                            syslog(LOG_INFO, "Socket %d hung up\n", i);
-                        }
-                        else
-                        {
-                            perror("recv() error");
-                        }
-
-                        close(i);
-                        FD_CLR(i, &master);
-                    }
-                    else
-                    {
-                        syslog(LOG_DEBUG, "Found data: '%s'\n", buf);
-                        char *bufptr = &buf[0];
-                        if (strncasecmp(bufptr, (char *)"help", 4) == 0)
-                        {
-                            STREAM_SEND(i, MGMT_HELP);
-                            if (friendly)
-                            {
-                                STREAM_SEND(i, MGMT_PROMPT);
-                            }
-                        }
-                        else if (strncasecmp(bufptr, (char *)"counters", 8) == 0)
-                        {
-                            /* send counters */
-
-                            statsd_counter_t *s_counter, *tmp;
-                            HASH_ITER(hh, counters, s_counter, tmp)
-                            {
-                                STREAM_SEND(i, s_counter->key);
-                                STREAM_SEND(i, ": ");
-                                STREAM_SEND_LONG_DOUBLE(i, s_counter->value);
-                                STREAM_SEND(i, "\n");
-                            }
-                            if (s_counter)
-                                free(s_counter);
-                            if (tmp)
-                                free(tmp);
-
-                            STREAM_SEND(i, MGMT_END);
-                            if (friendly)
-                            {
-                                STREAM_SEND(i, MGMT_PROMPT);
-                            }
-                        }
-                        else if (strncasecmp(bufptr, (char *)"timers", 6) == 0)
-                        {
-                            /* send timers */
-
-                            statsd_timer_t *s_timer, *tmp;
-                            HASH_ITER(hh, timers, s_timer, tmp)
-                            {
-                                STREAM_SEND(i, s_timer->key);
-                                STREAM_SEND(i, ": ");
-                                STREAM_SEND_INT(i, s_timer->count);
-
-                                if (s_timer->count > 0)
-                                {
-                                    double *j = NULL; bool first = 1;
-                                    STREAM_SEND(i, " [");
-                                    while ( (j=(double *)utarray_next(s_timer->values, j)) )
-                                    {
-                                        if (first == 1)
-                                        {
-                                            first = 0;
-                                            STREAM_SEND(i, ",");
-                                        }
-                                        STREAM_SEND_DOUBLE(i, *j);
-                                    }
-                                    STREAM_SEND(i, "]");
-                                }
-                                STREAM_SEND(i, "\n");
-                            }
-                            if (s_timer)
-                                free(s_timer);
-                            if (tmp)
-                                free(tmp);
-
-                            STREAM_SEND(i, MGMT_END);
-                            if (friendly)
-                            {
-                                STREAM_SEND(i, MGMT_PROMPT);
-                            }
-                        }
-                        else if (strncasecmp(bufptr, (char *)"stats", 5) == 0)
-                        {
-                            /* send stats */
-
-                            statsd_stat_t *s_stat, *tmp;
-                            HASH_ITER(hh, stats, s_stat, tmp)
-                            {
-                                if (strlen(s_stat->name.group_name) > 1)
-                                {
-                                    STREAM_SEND(i, s_stat->name.group_name);
-                                    STREAM_SEND(i, ".");
-                                }
-                                STREAM_SEND(i, s_stat->name.key_name);
-                                STREAM_SEND(i, ": ");
-                                STREAM_SEND_LONG(i, s_stat->value);
-                                STREAM_SEND(i, "\n");
-                            }
-                            if (s_stat)
-                                free(s_stat);
-                            if (tmp)
-                                free(tmp);
-
-                            STREAM_SEND(i, MGMT_END);
-                            if (friendly)
-                            {
-                                STREAM_SEND(i, MGMT_PROMPT);
-                            }
-                        }
-                        else if (strncasecmp(bufptr, (char *)"quit", 4) == 0)
-                        {
-                            /* disconnect */
-                            close(i);
-                            FD_CLR(i, &master);
-                        }
-                        else
-                        {
-                            STREAM_SEND(i, MGMT_BADCOMMAND);
-                            if (friendly)
-                            {
-                                STREAM_SEND(i, MGMT_PROMPT);
-                            }
-                        }
-                    }
-                }
+                STREAM_SEND_DOUBLE(output, *j);
             }
+            STREAM_SEND(output, "]");
         }
+        STREAM_SEND(output, "\n");
     }
+    if (s_timer)
+        free(s_timer);
+    if (tmp)
+        free(tmp);
 
-    /* end mgmt listener */
+    STREAM_SEND(output, MGMT_END);
+}
 
-    syslog(LOG_INFO, "Thread[Mgmt]: Ending thread");
+static void mgmt_send_stats(struct evbuffer* output)
+{
+    /* send stats */
+
+    statsd_stat_t *s_stat, *tmp;
+    HASH_ITER(hh, stats, s_stat, tmp)
+    {
+        if (strlen(s_stat->name.group_name) > 1)
+        {
+            STREAM_SEND(output, s_stat->name.group_name);
+            STREAM_SEND(output, ".");
+        }
+        STREAM_SEND(output, s_stat->name.key_name);
+        STREAM_SEND(output, ": ");
+        STREAM_SEND_LONG(output, s_stat->value);
+        STREAM_SEND(output, "\n");
+    }
+    if (s_stat)
+        free(s_stat);
+    if (tmp)
+        free(tmp);
+
+    STREAM_SEND(output, MGMT_END);
 }
