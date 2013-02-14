@@ -31,12 +31,12 @@ double get_time()
 
 int main(int argc, char *argv[])
 {
-    struct sockaddr_in *sa;
+    struct sockaddr_in sa;
 
     char buf[1024];
     char *host = NULL, *counter = NULL, *timer = NULL;
     uint32_t *ip;
-    long value;
+    long value = 1;
     int port = 8125, sample_rate = 1, performance_test = 0;
 
     int opt;
@@ -93,33 +93,32 @@ int main(int argc, char *argv[])
     }
 
     /* Send message */
-    int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
     ip = resolve_host(host);
-    sa = malloc(sizeof(struct sockaddr_in *));
-/*  memset(&sa, 0, sizeof(struct sockaddr_in)); */
-    sa->sin_family = AF_INET;
-    sa->sin_port = htons(port);
-    memcpy(&sa->sin_addr, &ip, sizeof(ip));
+    memset(&sa, 0, sizeof(struct sockaddr_in));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(port);
+    memcpy(&sa.sin_addr, ip, sizeof(*ip));
     if (performance_test)
     {
         double starting_time, ending_time;
         int err = 0;
         int iter;
         starting_time = get_time();
-        for (iter=0; iter<10000; iter++)
+        for (iter=0; iter<1000000; iter++)
         {
-            if (!sendto(s, (char*) buf, strlen(buf), 0, (struct sockaddr*) sa, sizeof(struct sockaddr_in)))
+            if (!sendto(s, (char*) buf, strlen(buf), 0, (struct sockaddr *)&sa, sizeof(struct sockaddr_in)))
             {
                 err++;
             }
         }
         ending_time = get_time();
-        printf("10k queries in %f seconds\n", ending_time - starting_time);
+        printf("1M queries in %f seconds\n", ending_time - starting_time);
         return 0;
     }
     else
     {
-        if (!sendto(s, (char*) buf, strlen(buf), 0, (struct sockaddr*) sa, sizeof(struct sockaddr_in)))
+        if (!sendto(s, (char*) buf, strlen(buf), 0, (struct sockaddr *)&sa, sizeof(struct sockaddr_in)))
         {
             return 1;
         }
@@ -129,27 +128,26 @@ int main(int argc, char *argv[])
 
 uint32_t *resolve_host(const char *addr)
 {
-        struct hostent* result = NULL;
+    struct hostent* result = NULL;
 #ifdef __linux__
-        struct hostent he;
-        char tmpbuf[1024];
-        int local_errno = 0;
-        if (gethostbyname_r(addr, &he, tmpbuf, sizeof(tmpbuf),
-                                                &result, &local_errno))
-        {
-                return 0;
-        }
+    struct hostent he;
+    char tmpbuf[1024];
+    int local_errno = 0;
+    if (gethostbyname_r(addr, &he, tmpbuf, sizeof(tmpbuf), &result, &local_errno))
+    {
+        return 0;
+    }
 #else
-        result = gethostbyname(addr);
+    result = gethostbyname(addr);
 #endif
 
-        if (result == NULL || result->h_addr_list[0] == NULL || result->h_length != 4)
-        {
-                return 0;
-        }
+    if (result == NULL || result->h_addr_list[0] == NULL || result->h_length != 4)
+    {
+        return 0;
+    }
 
-        uint32_t* ip = (uint32_t*) result->h_addr_list[0];
-        return ip;
+    uint32_t* ip = (uint32_t*) result->h_addr_list[0];
+    return ip;
 }
 
 void usage(char *argv[])

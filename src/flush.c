@@ -134,8 +134,6 @@ static void dump_stats()
 
 static void do_flush(struct flush * flush)
 {
-    printf("UDP: performing flush\n");
-
     dump_stats();
 
     long ts = time(NULL);
@@ -209,7 +207,6 @@ static void do_flush(struct flush * flush)
                     // Find the index of the 90th percentile threshold
                     int thresholdIndex = ( pctThreshold / 100.0 ) * s_timer->count;
                     maxAtThreshold = * ( utarray_eltptr( s_timer->values, thresholdIndex - 1 ) );
-                    printf("Count = %d Thresh = %d, MaxThreshold = %f\n", s_timer->count, thresholdIndex, maxAtThreshold);
 
                     double sum = 0;
                     double *i = NULL; int count = 0;
@@ -268,7 +265,7 @@ static void do_flush(struct flush * flush)
         utstring_printf(statString, "statsd.numStats %d %ld\n", numStats, ts);
     }
 
-    printf("Messages:\n%s", utstring_body(statString));
+    DPRINTF("Messages:\n%s", utstring_body(statString));
 
     int failure = 0, sock = -1;
     struct hostent* result = NULL;
@@ -288,7 +285,7 @@ static void do_flush(struct flush * flush)
 
     if (result == NULL || result->h_addr_list[0] == NULL || result->h_length != 4)
     {
-        printf("Cannot get hostname\n");
+        DPRINTF("Cannot get hostname\n");
         failure = 1;
     }
 
@@ -314,11 +311,11 @@ static void do_flush(struct flush * flush)
 
     if (!failure)
     {
-        printf("Sending data to %s:%d. addr = %08x\n", graphite_host, graphite_port, *ip);
+        DPRINTF("Sending data to %s:%d. addr = %08x\n", graphite_host, graphite_port, *ip);
         int r = connect(sock, (struct sockaddr *)&sa, sizeof(sa));
-        printf("Connect result = %d\n", r);
+        DPRINTF("Connect result = %d\n", r);
         int n = send(sock, utstring_body(statString), utstring_len(statString), 0);
-        printf("Send result = %d\n", n);
+        DPRINTF("Send result = %d\n", n);
         close(sock);
     }
 

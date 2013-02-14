@@ -108,20 +108,19 @@ void udp_event_callback(int fd, short flags, void * param)
     char buf_in[BUFLEN];
     struct sockaddr_in si_other;
 
-    syslog(LOG_DEBUG, "UDP: callback event %d", port);
+    DPRINTF("UDP: callback event %d", port);
 
     memset(&buf_in, 0, sizeof(buf_in));
     if (read(stats_udp_socket, buf_in, sizeof(buf_in)) <= 0)
     {
-        syslog(LOG_DEBUG, "UDP: read failed");
+        syslog(LOG_INFO, "UDP: read failed");
     }
 
     /* make sure that the buf_in is NULL terminated */
     buf_in[BUFLEN - 1] = 0;
 
-    syslog(LOG_DEBUG, "UDP: Received packet from %s:%d\nData: %s\n\n",
-            inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port), buf_in);
+    DPRINTF("UDP: Received packet from %s:%d\nData: %s\n\n", inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port), buf_in);
+    DPRINTF("UDP: Processing packet");
 
-    syslog(LOG_DEBUG, "UDP: Processing packet");
     process_stats_packet(buf_in);
 }

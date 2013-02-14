@@ -31,25 +31,25 @@
  */
 void update_stat( char *group, char *key, char *value )
 {
-    syslog(LOG_DEBUG, "update_stat ( %s, %s, %s )\n", group, key, value);
+    DPRINTF("update_stat ( %s, %s, %s )\n", group, key, value);
     statsd_stat_t *s;
     statsd_stat_name_t l;
 
     memset(&l, 0, sizeof(statsd_stat_name_t));
     strcpy(l.group_name, group);
     strcpy(l.key_name, key);
-    syslog(LOG_DEBUG, "HASH_FIND '%s' '%s'\n", l.group_name, l.key_name);
+    DPRINTF("HASH_FIND '%s' '%s'\n", l.group_name, l.key_name);
     HASH_FIND( hh, stats, &l, sizeof(statsd_stat_name_t), s );
 
     if (s)
     {
-        syslog(LOG_DEBUG, "Updating old stat entry");
+        DPRINTF("Updating old stat entry");
 
         s->value = atol( value );
     }
     else
     {
-        syslog(LOG_DEBUG, "Adding new stat entry");
+        DPRINTF("Adding new stat entry");
         s = malloc(sizeof(statsd_stat_t));
         memset(s, 0, sizeof(statsd_stat_t));
 
@@ -64,12 +64,12 @@ void update_stat( char *group, char *key, char *value )
 
 void update_counter( char *key, double value, double sample_rate)
 {
-    syslog(LOG_DEBUG, "update_counter ( %s, %f, %f )\n", key, value, sample_rate);
+    DPRINTF("update_counter ( %s, %f, %f )\n", key, value, sample_rate);
     statsd_counter_t *c;
     HASH_FIND_STR( counters, key, c );
     if (c)
     {
-        syslog(LOG_DEBUG, "Updating old counter entry");
+        DPRINTF("Updating old counter entry");
         if (sample_rate == 0)
         {
             c->value = c->value + value;
@@ -81,7 +81,7 @@ void update_counter( char *key, double value, double sample_rate)
     }
     else
     {
-        syslog(LOG_DEBUG, "Adding new counter entry");
+        DPRINTF("Adding new counter entry");
         c = malloc(sizeof(statsd_counter_t));
 
         strcpy(c->key, key);
@@ -101,19 +101,19 @@ void update_counter( char *key, double value, double sample_rate)
 
 void update_gauge( char *key, double value )
 {
-    syslog(LOG_DEBUG, "update_gauge ( %s, %f )\n", key, value);
+    DPRINTF("update_gauge ( %s, %f )\n", key, value);
     statsd_gauge_t *g;
-    syslog(LOG_DEBUG, "HASH_FIND_STR '%s'\n", key);
+    DPRINTF("HASH_FIND_STR '%s'\n", key);
     HASH_FIND_STR( gauges, key, g );
-    syslog(LOG_DEBUG, "after HASH_FIND_STR '%s'\n", key);
+    DPRINTF("after HASH_FIND_STR '%s'\n", key);
     if (g)
     {
-        syslog(LOG_DEBUG, "Updating old timer entry");
+        DPRINTF("Updating old timer entry");
         g->value = value;
     }
     else
     {
-        syslog(LOG_DEBUG, "Adding new timer entry");
+        DPRINTF("Adding new timer entry");
         g = malloc(sizeof(statsd_gauge_t));
 
         strcpy(g->key, key);
@@ -125,20 +125,20 @@ void update_gauge( char *key, double value )
 
 void update_timer(char *key, double value)
 {
-    syslog(LOG_DEBUG, "update_timer ( %s, %f )\n", key, value);
+    DPRINTF("update_timer ( %s, %f )\n", key, value);
     statsd_timer_t *t;
-    syslog(LOG_DEBUG, "HASH_FIND_STR '%s'\n", key);
+    DPRINTF("HASH_FIND_STR '%s'\n", key);
     HASH_FIND_STR( timers, key, t );
-    syslog(LOG_DEBUG, "after HASH_FIND_STR '%s'\n", key);
+    DPRINTF("after HASH_FIND_STR '%s'\n", key);
     if (t)
     {
-        syslog(LOG_DEBUG, "Updating old timer entry");
+        DPRINTF("Updating old timer entry");
         utarray_push_back(t->values, &value);
         t->count++;
     }
     else
     {
-        syslog(LOG_DEBUG, "Adding new timer entry");
+        DPRINTF("Adding new timer entry");
         t = malloc(sizeof(statsd_timer_t));
 
         strcpy(t->key, key);
@@ -194,7 +194,7 @@ void process_stats_packet(char buf_in[])
 
     for (i = 1, bits=buf_in; ; i++, bits=NULL)
     {
-        syslog(LOG_DEBUG, "i = %d\n", i);
+        DPRINTF("i = %d\n", i);
         token = strtok_r(bits, ":", &save);
         if (token == NULL)
         {
@@ -203,14 +203,14 @@ void process_stats_packet(char buf_in[])
 
         if (i == 1)
         {
-            syslog(LOG_DEBUG, "Found token '%s', key name\n", token);
+            DPRINTF("Found token '%s', key name\n", token);
             key_name = strdup(token);
             sanitize_key(key_name);
             /* break; */
         }
         else
         {
-            syslog(LOG_DEBUG, "\ttoken [#%d] = %s\n", i, token);
+            DPRINTF("\ttoken [#%d] = %s\n", i, token);
             s_sample_rate = NULL;
             s_number = NULL;
             is_timer = 0;
@@ -218,11 +218,11 @@ void process_stats_packet(char buf_in[])
 
             if (strstr(token, "|") == NULL)
             {
-                syslog(LOG_DEBUG, "No pipes found, basic logic");
+                DPRINTF("No pipes found, basic logic");
                 sanitize_value(token);
-                syslog(LOG_DEBUG, "\t\tvalue = %s\n", token);
+                DPRINTF("\t\tvalue = %s\n", token);
                 value = strtod(token, (char **) NULL);
-                syslog(LOG_DEBUG, "\t\tvalue = %s => %f\n", token, value);
+                DPRINTF("\t\tvalue = %s => %f\n", token, value);
             }
             else
             {
@@ -231,22 +231,22 @@ void process_stats_packet(char buf_in[])
                     subtoken = strtok_r(fields, "|", &subsave);
                     if (subtoken == NULL)
                         break;
-                    syslog(LOG_DEBUG, "\t\tsubtoken = %s\n", subtoken);
+                    DPRINTF("\t\tsubtoken = %s\n", subtoken);
 
                     switch (j)
                     {
                     case 1:
-                        syslog(LOG_DEBUG, "case 1");
+                        DPRINTF("case 1");
                         sanitize_value(subtoken);
                         value = strtod(subtoken, (char **) NULL);
                         break;
                     case 2:
-                        syslog(LOG_DEBUG, "case 2");
+                        DPRINTF("case 2");
                         if (subtoken == NULL)
                             { break ; }
                         if (strlen(subtoken) < 2)
                         {
-                            syslog(LOG_DEBUG, "subtoken length < 2");
+                            DPRINTF("subtoken length < 2");
                             is_timer = 0;
                             if (*subtoken == 'g')
                             {
@@ -255,7 +255,7 @@ void process_stats_packet(char buf_in[])
                         }
                         else
                         {
-                            syslog(LOG_DEBUG, "subtoken length >= 2");
+                            DPRINTF("subtoken length >= 2");
                             if (*subtoken == 'm' && *(subtoken + 1) == 's')
                             {
                                 is_timer = 1;
@@ -264,7 +264,7 @@ void process_stats_packet(char buf_in[])
                         }
                         break;
                     case 3:
-                        syslog(LOG_DEBUG, "case 3");
+                        DPRINTF("case 3");
                         if (subtoken == NULL)
                             break ;
                         s_sample_rate = strdup(subtoken);
@@ -273,7 +273,7 @@ void process_stats_packet(char buf_in[])
                 }
             }
 
-            syslog(LOG_DEBUG, "Post token processing");
+            DPRINTF("Post token processing");
 
             if (is_timer == 1)
             {
@@ -284,8 +284,8 @@ void process_stats_packet(char buf_in[])
             {
                 /* Handle non-timer, as gauge */
                 update_gauge(key_name, value);
-                syslog(LOG_DEBUG, "Found gauge key name '%s'\n", key_name);
-                syslog(LOG_DEBUG, "Found gauge value '%f'\n", value);
+                DPRINTF("Found gauge key name '%s'\n", key_name);
+                DPRINTF("Found gauge value '%f'\n", value);
             }
             else
             {
@@ -300,8 +300,8 @@ void process_stats_packet(char buf_in[])
                     sample_rate = 1.0;
                 }
                 update_counter(key_name, value, sample_rate);
-                syslog(LOG_DEBUG, "Found key name '%s'\n", key_name);
-                syslog(LOG_DEBUG, "Found value '%f'\n", value);
+                DPRINTF("Found key name '%s'\n", key_name);
+                DPRINTF("Found value '%f'\n", value);
             }
             if (s_sample_rate)
                 free(s_sample_rate);
@@ -311,7 +311,7 @@ void process_stats_packet(char buf_in[])
     }
     i--; /* For ease */
 
-    syslog(LOG_DEBUG, "After loop, i = %d, value = %f", i, value);
+    DPRINTF("After loop, i = %d, value = %f", i, value);
 
     if (i <= 1)
     {
@@ -319,7 +319,7 @@ void process_stats_packet(char buf_in[])
         update_counter(key_name, value, 1);
     }
 
-    syslog(LOG_DEBUG, "freeing key and value");
+    DPRINTF("freeing key and value");
     if (key_name)
         free(key_name);
 

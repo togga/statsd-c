@@ -14,6 +14,8 @@ extern int debug, friendly;
 void cleanup();
 void process_stats_packet(char buf_in[]);
 
+#define DPRINTF if (debug) printf
+
 #define BUFLEN 1024
 
 /* Default statsd ports */
