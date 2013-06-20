@@ -11,6 +11,7 @@
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <time.h>
 
 #include <event2/event.h>
 
@@ -303,7 +304,9 @@ static void do_flush(struct flush * flush)
     if (!failure)
     {
         memset(&sa, 0, sizeof(struct sockaddr_in));
+#ifdef DARWIN
         sa.sin_len = sizeof(struct sockaddr_in);
+#endif
         sa.sin_family = AF_INET;
         sa.sin_port = htons(graphite_port);
         memcpy(&(sa.sin_addr), ip, sizeof(*ip));

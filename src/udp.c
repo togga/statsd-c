@@ -15,6 +15,7 @@
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include <event2/event.h>
 
