@@ -1,7 +1,7 @@
 OBJDIR=obj
 BINDIR=bin
 SRC=src
-CC=clang
+CC=gcc
 OPTFLAGS=-O2
 CFLAGS=$(OPTFLAGS) -Wall -Werror
 

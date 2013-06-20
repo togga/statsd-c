@@ -19,6 +19,7 @@
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <time.h>
 
 #include <event2/event.h>
 
@@ -104,6 +105,7 @@ void sigterm_handler (int signum)
 void daemonize_server(struct event_base* event_base)
 {
     int pid;
+    int fd;
     int lockfp;
     char str[10];
 
@@ -131,8 +133,23 @@ void daemonize_server(struct event_base* event_base)
     {
         close(pid);
     }
-    pid = open("/dev/null", O_RDWR); dup(pid); dup(pid);
+
+    pid = open("/dev/null", O_RDWR); 
+    fd = dup(pid); 
+    if (fd == -1) 
+    {
+        syslog(LOG_ERR,"Could not duplicated file descriptor.");
+        exit(1);
+    }
+    fd = dup(pid);
+    if (fd == -1) 
+    {
+        syslog(LOG_ERR,"Could not duplicated file descriptor.");
+        exit(1);
+    }
+
     umask((mode_t) 022);
+
     lockfp = open(lock_file != NULL ? lock_file : LOCK_FILE, O_RDWR | O_CREAT, 0640);
     if (lockfp < 0)
     {
@@ -144,6 +161,7 @@ void daemonize_server(struct event_base* event_base)
         syslog(LOG_ERR, "Could not create lock, bailing out");
         exit(0);
     }
+
     sprintf(str, "%d\n", getpid());
     write(lockfp, str, strlen(str));
     close(lockfp);
