@@ -105,7 +105,7 @@ void sigterm_handler (int signum)
 void daemonize_server(struct event_base* event_base)
 {
     int pid;
-    int fd;
+    int fd, result;
     int lockfp;
     char str[10];
 
@@ -134,15 +134,15 @@ void daemonize_server(struct event_base* event_base)
         close(pid);
     }
 
-    pid = open("/dev/null", O_RDWR); 
-    fd = dup(pid); 
-    if (fd == -1) 
+    pid = open("/dev/null", O_RDWR);
+    fd = dup(pid);
+    if (fd == -1)
     {
         syslog(LOG_ERR,"Could not duplicated file descriptor.");
         exit(1);
     }
     fd = dup(pid);
-    if (fd == -1) 
+    if (fd == -1)
     {
         syslog(LOG_ERR,"Could not duplicated file descriptor.");
         exit(1);
@@ -163,7 +163,8 @@ void daemonize_server(struct event_base* event_base)
     }
 
     sprintf(str, "%d\n", getpid());
-    write(lockfp, str, strlen(str));
+    result = write(lockfp, str, strlen(str));
+    (void) result;
     close(lockfp);
 
     /* Signal handling */

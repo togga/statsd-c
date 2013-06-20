@@ -111,6 +111,7 @@ int main(int argc, char *argv[])
             {
                 err++;
             }
+            usleep(1);
         }
         ending_time = get_time();
         printf("1M queries in %f seconds\n", ending_time - starting_time);
