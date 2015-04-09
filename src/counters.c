@@ -44,13 +44,13 @@ void update_stat( char *group, char *key, char *value )
 
     if (s)
     {
-        DPRINTF("Updating old stat entry");
+        DPRINTF("Updating old stat entry\n");
 
         s->value = atol( value );
     }
     else
     {
-        DPRINTF("Adding new stat entry");
+        DPRINTF("Adding new stat entry\n");
         s = malloc(sizeof(statsd_stat_t));
         memset(s, 0, sizeof(statsd_stat_t));
 
@@ -70,7 +70,7 @@ void update_counter( char *key, double value, double sample_rate)
     HASH_FIND_STR( counters, key, c );
     if (c)
     {
-        DPRINTF("Updating old counter entry");
+        DPRINTF("Updating old counter entry\n");
         if (sample_rate == 0)
         {
             c->value = c->value + value;
@@ -82,7 +82,7 @@ void update_counter( char *key, double value, double sample_rate)
     }
     else
     {
-        DPRINTF("Adding new counter entry");
+        DPRINTF("Adding new counter entry\n");
         c = malloc(sizeof(statsd_counter_t));
 
         strcpy(c->key, key);
@@ -109,12 +109,12 @@ void update_gauge( char *key, double value )
     DPRINTF("after HASH_FIND_STR '%s'\n", key);
     if (g)
     {
-        DPRINTF("Updating old timer entry");
+        DPRINTF("Updating old timer entry\n");
         g->value = value;
     }
     else
     {
-        DPRINTF("Adding new timer entry");
+        DPRINTF("Adding new timer entry\n");
         g = malloc(sizeof(statsd_gauge_t));
 
         strcpy(g->key, key);
@@ -133,13 +133,13 @@ void update_timer(char *key, double value)
     DPRINTF("after HASH_FIND_STR '%s'\n", key);
     if (t)
     {
-        DPRINTF("Updating old timer entry");
+        DPRINTF("Updating old timer entry\n");
         utarray_push_back(t->values, &value);
         t->count++;
     }
     else
     {
-        DPRINTF("Adding new timer entry");
+        DPRINTF("Adding new timer entry\n");
         t = malloc(sizeof(statsd_timer_t));
 
         strcpy(t->key, key);
@@ -219,7 +219,7 @@ void process_stats_packet(char buf_in[])
 
             if (strstr(token, "|") == NULL)
             {
-                DPRINTF("No pipes found, basic logic");
+                DPRINTF("No pipes found, basic logic\n");
                 sanitize_value(token);
                 DPRINTF("\t\tvalue = %s\n", token);
                 value = strtod(token, (char **) NULL);
@@ -237,17 +237,17 @@ void process_stats_packet(char buf_in[])
                     switch (j)
                     {
                     case 1:
-                        DPRINTF("case 1");
+                        DPRINTF("case 1\n");
                         sanitize_value(subtoken);
                         value = strtod(subtoken, (char **) NULL);
                         break;
                     case 2:
-                        DPRINTF("case 2");
+                        DPRINTF("case 2\n");
                         if (subtoken == NULL)
                             { break ; }
                         if (strlen(subtoken) < 2)
                         {
-                            DPRINTF("subtoken length < 2");
+                            DPRINTF("subtoken length < 2\n");
                             is_timer = 0;
                             if (*subtoken == 'g')
                             {
@@ -256,7 +256,7 @@ void process_stats_packet(char buf_in[])
                         }
                         else
                         {
-                            DPRINTF("subtoken length >= 2");
+                            DPRINTF("subtoken length >= 2\n");
                             if (*subtoken == 'm' && *(subtoken + 1) == 's')
                             {
                                 is_timer = 1;
@@ -265,7 +265,7 @@ void process_stats_packet(char buf_in[])
                         }
                         break;
                     case 3:
-                        DPRINTF("case 3");
+                        DPRINTF("case 3\n");
                         if (subtoken == NULL)
                             break ;
                         s_sample_rate = strdup(subtoken);
@@ -274,7 +274,7 @@ void process_stats_packet(char buf_in[])
                 }
             }
 
-            DPRINTF("Post token processing");
+            DPRINTF("Post token processing\n");
 
             if (is_timer == 1)
             {
@@ -312,7 +312,7 @@ void process_stats_packet(char buf_in[])
     }
     i--; /* For ease */
 
-    DPRINTF("After loop, i = %d, value = %f", i, value);
+    DPRINTF("After loop, i = %d, value = %f\n", i, value);
 
     if (i <= 1)
     {
@@ -320,7 +320,7 @@ void process_stats_packet(char buf_in[])
         update_counter(key_name, value, 1);
     }
 
-    DPRINTF("freeing key and value");
+    DPRINTF("freeing key and value\n");
     if (key_name)
         free(key_name);
 
