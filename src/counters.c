@@ -183,7 +183,6 @@ void process_stats_packet(char buf_in[])
     double value = 1.0;
     int i;
     int j;
-    char *s_sample_rate = NULL, *s_number = NULL;
     double sample_rate;
     bool is_timer = 0, is_gauge = 0;
 
@@ -196,7 +195,7 @@ void process_stats_packet(char buf_in[])
     for (i = 1, bits=buf_in; ; i++, bits=NULL)
     {
         DPRINTF("i = %d\n", i);
-        token = strtok_r(bits, ":", &save);
+        token = strtok_r(bits, ":\n", &save);
         if (token == NULL)
         {
             break;
@@ -212,8 +211,7 @@ void process_stats_packet(char buf_in[])
         else
         {
             DPRINTF("\ttoken [#%d] = %s\n", i, token);
-            s_sample_rate = NULL;
-            s_number = NULL;
+            sample_rate = 1.0;
             is_timer = 0;
             is_gauge = 0;
 
@@ -268,7 +266,13 @@ void process_stats_packet(char buf_in[])
                         DPRINTF("case 3\n");
                         if (subtoken == NULL)
                             break ;
-                        s_sample_rate = strdup(subtoken);
+                        if (*subtoken == '@')
+                        {
+                          sample_rate = strtod(subtoken + 1, (char **) NULL);
+                          if (sample_rate == 0) {
+                            sample_rate = 1.0;
+                          }
+                        }
                         break;
                     }
                 }
@@ -290,40 +294,26 @@ void process_stats_packet(char buf_in[])
             }
             else
             {
-                if (s_sample_rate && *s_sample_rate == 'g')
-                {
-                    /* Handle non-timer, as counter */
-                    sample_rate = strtod( (s_sample_rate + 1), (char **) NULL );
-                }
-                else
-                {
-                    /* sample_rate is assumed to be 1.0 if not specified */
-                    sample_rate = 1.0;
-                }
                 update_counter(key_name, value, sample_rate);
-                DPRINTF("Found key name '%s'\n", key_name);
-                DPRINTF("Found value '%f'\n", value);
+                DPRINTF("Found counter '%s' value '%f' sample rate '%f'\n",
+                    key_name, value, sample_rate);
             }
-            if (s_sample_rate)
-                free(s_sample_rate);
-            if (s_number)
-                free(s_number);
+
+            i = 0;
+            if (key_name) {
+                DPRINTF("freeing key\n");
+                free(key_name);
+                key_name = NULL;
+            }
+
         }
     }
-    i--; /* For ease */
 
-    DPRINTF("After loop, i = %d, value = %f\n", i, value);
-
-    if (i <= 1)
-    {
-        /* No value, assign "1" and process */
-        update_counter(key_name, value, 1);
-    }
-
-    DPRINTF("freeing key and value\n");
-    if (key_name)
+    if (key_name) {
+        DPRINTF("freeing key\n");
         free(key_name);
+        key_name = NULL;
+    }
 
     UPDATE_LAST_MSG_SEEN()
 }
-
