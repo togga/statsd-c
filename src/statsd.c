@@ -125,7 +125,7 @@ void daemonize_server(struct event_base* event_base)
     }
 
     /* Try to become root, but ignore if we can't */
-    setuid((uid_t) 0);
+    result = setuid((uid_t) 0);
     errno = 0;
 
     setsid();
