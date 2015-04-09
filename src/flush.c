@@ -251,7 +251,7 @@ static void do_flush(struct flush * flush)
         HASH_ITER(hh, gauges, s_gauge, tmp)
         {
             long double value = s_gauge->value;
-            utstring_printf(statString, "stats.%s %Lf %ld\nstats_gauges_%s %Lf %ld\n", s_gauge->key, value, ts, s_gauge->key, s_gauge->value, ts);
+            utstring_printf(statString, "stats.%s %Lf %ld\nstats.gauges.%s %Lf %ld\n", s_gauge->key, value, ts, s_gauge->key, s_gauge->value, ts);
             numStats++;
         }
         if (s_gauge) free(s_gauge);
