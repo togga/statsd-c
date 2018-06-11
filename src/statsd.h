@@ -16,7 +16,7 @@ void process_stats_packet(char buf_in[]);
 
 #define DPRINTF if (debug) printf
 
-#define BUFLEN 1024
+#define BUFLEN 65536
 
 /* Default statsd ports */
 #define PORT 8125
