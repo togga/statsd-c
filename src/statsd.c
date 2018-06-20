@@ -32,6 +32,7 @@
 #include "udp.h"
 #include "flush.h"
 #include "mgmt.h"
+#include "gauge_relay.h"
 
 #define STATSD_VERSION "0.1.0"
 #define LOCK_FILE "/tmp/statsd.lock"
@@ -301,6 +302,10 @@ int main(int argc, char *argv[])
         daemonize_server(event_base);
     }
 
+    /* start the gauge relay */
+    if (init_gauge_relay() != 0)
+      goto exit;
+
     /* start the UDP listener */
     if ((udp = udp_new()) == NULL)
         goto exit;
@@ -326,6 +331,8 @@ int main(int argc, char *argv[])
 
 exit:
     cleanup();
+
+    gauge_relay_cleanup();
 
     if (flush)
     {

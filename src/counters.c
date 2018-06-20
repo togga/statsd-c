@@ -25,6 +25,7 @@
 #include "stats.h"
 #include "counters.h"
 #include "strings.h"
+#include "gauge_relay.h"
 
 
 /**
@@ -287,10 +288,7 @@ void process_stats_packet(char buf_in[])
             }
             else if (is_gauge == 1)
             {
-                /* Handle non-timer, as gauge */
-                update_gauge(key_name, value);
-                DPRINTF("Found gauge key name '%s'\n", key_name);
-                DPRINTF("Found gauge value '%f'\n", value);
+              relay_gauge(key_name, value);
             }
             else
             {

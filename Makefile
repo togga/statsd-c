@@ -14,7 +14,7 @@ CFLAGS=$(OPTFLAGS) -Wall -Werror
 debug: all
 
 
-OBJ=$(OBJDIR)/statsd.o $(OBJDIR)/strings.o $(OBJDIR)/udp.o $(OBJDIR)/counters.o $(OBJDIR)/mgmt.o $(OBJDIR)/flush.o
+OBJ=$(OBJDIR)/statsd.o $(OBJDIR)/strings.o $(OBJDIR)/udp.o $(OBJDIR)/counters.o $(OBJDIR)/mgmt.o $(OBJDIR)/flush.o $(OBJDIR)/gauge_relay.o
 
 
 all: $(BINDIR) $(BINDIR)/statsd$(SUFFIX) $(BINDIR)/statsd_client$(SUFFIX)
